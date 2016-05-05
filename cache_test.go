@@ -40,7 +40,6 @@ func TestCacheLookup(t *testing.T) {
 			pttls: map[hashPrefix]map[ThreatDescriptor]time.Time{
 				"AAAABBBBBBBBBBBBBBBBBBBBBBBBBBBB": {
 					{1, 2, 3}: now.Add(DefaultUpdatePeriod),
-					{1, 1, 1}: now.Add(-DefaultUpdatePeriod),
 				},
 				"ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ": {
 					{2, 2, 2}: now.Add(-time.Minute),
@@ -77,6 +76,49 @@ func TestCacheLookup(t *testing.T) {
 			tds: nil,
 			r:   cacheMiss,
 		}},
+	}, { 
+		gotCache: &cache{
+			pttls: map[hashPrefix]map[ThreatDescriptor]time.Time{
+				"AAAABBBBBBBBBBBBBBBBBBBBBBBBBBBB": {
+					{1, 2, 3}: now.Add(DefaultUpdatePeriod),
+					{1, 1, 1}: now.Add(-DefaultUpdatePeriod),
+				},
+				"ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ": {
+					{2, 2, 2}: now.Add(-time.Minute),
+					{1, 1, 1}: now.Add(-DefaultUpdatePeriod),
+				},
+			},
+			nttls: map[hashPrefix]time.Time{
+				"AAAA": now.Add(DefaultUpdatePeriod*2),
+				"BBBB": now.Add(-time.Minute),
+			},
+			now: mockNow,
+		},
+		wantCache: &cache{
+			pttls: map[hashPrefix]map[ThreatDescriptor]time.Time{
+				"AAAABBBBBBBBBBBBBBBBBBBBBBBBBBBB": {
+					{1, 2, 3}: now.Add(DefaultUpdatePeriod),
+					{1, 1, 1}: now.Add(-DefaultUpdatePeriod),
+				},
+			},
+			nttls: map[hashPrefix]time.Time{
+				"AAAA": now.Add(DefaultUpdatePeriod*2),
+			},
+			now: mockNow,
+		},
+		lookups: []cacheLookup{{
+			h:   "AAAABBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+			tds: nil,
+			r:   cacheMiss,
+		}, {
+			h:   "AAAACDCDCDCDCDCDCDCDCDCDCDCDCDCD",
+			tds: nil,
+			r:   negativeCacheHit,
+		}, {
+			h:   "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+			tds: nil,
+			r:   cacheMiss,
+		}},
 	}, {
 		gotCache:  &cache{now: mockNow},
 		wantCache: &cache{now: mockNow},
@@ -104,20 +146,20 @@ func TestCacheLookup(t *testing.T) {
 		}
 		v.gotCache.Purge()
 		if !reflect.DeepEqual(v.wantCache.pttls, v.gotCache.pttls) {
-			t.Errorf("test %d, mismatching cache contents: PTTLS\ngot  %+v\nwant %+v", i, v.gotCache.pttls, v.wantCache.pttls)
+			t.Errorf("purge test %d, mismatching cache contents: PTTLS\ngot  %+v\nwant %+v", i, v.gotCache.pttls, v.wantCache.pttls)
 		}
 		if !reflect.DeepEqual(v.wantCache.nttls, v.gotCache.nttls) {
-			t.Errorf("test %d, mismatching cache contents: NTTLS\ngot  %+v\nwant %+v", i, v.gotCache.nttls, v.wantCache.nttls)
+			t.Errorf("purge test %d, mismatching cache contents: NTTLS\ngot  %+v\nwant %+v", i, v.gotCache.nttls, v.wantCache.nttls)
 		}
 		for j, l := range v.lookups {
 			gotTDs, gotR := v.gotCache.Lookup(l.h)
 			if !reflect.DeepEqual(gotTDs, l.tds) {
-				t.Errorf("test %d, lookup %d, threats mismatch:\ngot  %+v\nwant %+v", i, j, gotTDs, l.tds)
+				t.Errorf("purge test %d, lookup %d, threats mismatch:\ngot  %+v\nwant %+v", i, j, gotTDs, l.tds)
 			}
 			if gotR != l.r {
-				t.Errorf("test %d, lookup %d, result mismatch: got %d, want %d", i, j, gotR, l.r)
+				t.Errorf("purge test %d, lookup %d, result mismatch: got %d, want %d", i, j, gotR, l.r)
 			}
-		}
+		} 
 	}
 }
 
