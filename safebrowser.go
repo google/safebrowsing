@@ -316,6 +316,7 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 	}
 	sb.log = log.New(w, "safebrowsing: ", log.Ldate|log.Ltime|log.Lshortfile)
 	sb.c.log = sb.log
+
 	// If database file is provided, use that to initialize.
 	if !sb.db.Init(&sb.config, sb.log) {
 		sb.db.Update(sb.api)

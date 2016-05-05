@@ -118,19 +118,18 @@ func (c *cache) Lookup(hash hashPrefix) (map[ThreatDescriptor]bool, cacheResult)
 	threats := make(map[ThreatDescriptor]bool)
 	threatTTLs := c.pttls[hash]
 	for td, pttl := range threatTTLs {
-		log.Printf("Hash = %v. Pttl found for threat: %v", hash, td)
 		if pttl.After(now) {
 			threats[td] = true
 		} else {
-		// The pttl has expired, we should ask the server what's going on.
-			log.Printf("Expired pttl.")
+			// The PTTL has expired, we should ask the server what's going on.
+			c.log.Printf("hash %x: expired PTTL", hash)
 			return nil, cacheMiss
 		}
 	}
 	if len(threats) > 0 {
 		// So long as there are valid threats, we report them. The positive TTL
 		// takes precedence over the negative TTL at the partial hash level.
-		log.Printf("Hash %v unsafe for %v threat(s).", hash, len(threats))
+		c.log.Printf("hash %x: unsafe for %d threat(s)", hash, len(threats))
 		return threats, positiveCacheHit
 	}
 
@@ -161,13 +160,13 @@ func (c *cache) Purge() {
 				for i := minHashPrefixLength; i <= maxHashPrefixLength; i++ {
 					if nttl, ok := c.nttls[fullHash[:i]]; ok {
 						if nttl.After(pttl) {
-							log.Printf("Fullhash %v: nttl > pttl", fullHash)
+							c.log.Printf("hash %x: not purging since NTTL > PTTL", fullHash)
 							del = false
 							continue
 						}
 					}
 				}
-				if (del) {
+				if del {
 					delete(threatTTLs, td)
 				}
 			}

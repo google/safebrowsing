@@ -15,6 +15,8 @@
 package safebrowsing
 
 import (
+	"io/ioutil"
+	"log"
 	"reflect"
 	"testing"
 	"time"
@@ -25,6 +27,7 @@ import (
 func TestCacheLookup(t *testing.T) {
 	now := time.Unix(1451436338, 951473000)
 	mockNow := func() time.Time { return now }
+	nilLogger := log.New(ioutil.Discard, "", 0)
 
 	type cacheLookup struct {
 		h   hashPrefix
@@ -51,6 +54,7 @@ func TestCacheLookup(t *testing.T) {
 				"BBBB": now.Add(-time.Minute),
 			},
 			now: mockNow,
+			log: nilLogger,
 		},
 		wantCache: &cache{
 			pttls: map[hashPrefix]map[ThreatDescriptor]time.Time{
@@ -62,6 +66,7 @@ func TestCacheLookup(t *testing.T) {
 				"AAAA": now.Add(DefaultUpdatePeriod),
 			},
 			now: mockNow,
+			log: nilLogger,
 		},
 		lookups: []cacheLookup{{
 			h:   "AAAABBBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -76,7 +81,7 @@ func TestCacheLookup(t *testing.T) {
 			tds: nil,
 			r:   cacheMiss,
 		}},
-	}, { 
+	}, {
 		gotCache: &cache{
 			pttls: map[hashPrefix]map[ThreatDescriptor]time.Time{
 				"AAAABBBBBBBBBBBBBBBBBBBBBBBBBBBB": {
@@ -89,10 +94,11 @@ func TestCacheLookup(t *testing.T) {
 				},
 			},
 			nttls: map[hashPrefix]time.Time{
-				"AAAA": now.Add(DefaultUpdatePeriod*2),
+				"AAAA": now.Add(DefaultUpdatePeriod * 2),
 				"BBBB": now.Add(-time.Minute),
 			},
 			now: mockNow,
+			log: nilLogger,
 		},
 		wantCache: &cache{
 			pttls: map[hashPrefix]map[ThreatDescriptor]time.Time{
@@ -102,9 +108,10 @@ func TestCacheLookup(t *testing.T) {
 				},
 			},
 			nttls: map[hashPrefix]time.Time{
-				"AAAA": now.Add(DefaultUpdatePeriod*2),
+				"AAAA": now.Add(DefaultUpdatePeriod * 2),
 			},
 			now: mockNow,
+			log: nilLogger,
 		},
 		lookups: []cacheLookup{{
 			h:   "AAAABBBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -120,8 +127,8 @@ func TestCacheLookup(t *testing.T) {
 			r:   cacheMiss,
 		}},
 	}, {
-		gotCache:  &cache{now: mockNow},
-		wantCache: &cache{now: mockNow},
+		gotCache:  &cache{now: mockNow, log: nilLogger},
+		wantCache: &cache{now: mockNow, log: nilLogger},
 		lookups: []cacheLookup{{
 			h:   "AAAABBBBBBBBBBBBBBBBBBBBBBBBBBBB",
 			tds: nil,
@@ -159,7 +166,7 @@ func TestCacheLookup(t *testing.T) {
 			if gotR != l.r {
 				t.Errorf("purge test %d, lookup %d, result mismatch: got %d, want %d", i, j, gotR, l.r)
 			}
-		} 
+		}
 	}
 }
 
