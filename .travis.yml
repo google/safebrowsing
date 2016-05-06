@@ -6,3 +6,4 @@ go:
 
 script:
   - test -z "$(gofmt -s -l $(find . -name '*.go' -type f -print) | tee /dev/stderr)"
+  - go test -v ./...
