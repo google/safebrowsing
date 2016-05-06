@@ -5,4 +5,4 @@ go:
   - tip
 
 script
-  - test -z "$(gofmt -s -l $(find . -name "*.go" -type f -print) | tee /dev/stderr)"
+  - test -z "$(gofmt -s -l $(find . -name '*.go' -type f -print) | tee /dev/stderr)"
