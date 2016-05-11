@@ -49,7 +49,7 @@ key:
 
 	```
 	go get github.com/google/safebrowsing/cmd/sbserver
-	sbserver -apiKey $APIKEY
+	sbserver -apikey $APIKEY
 	```
 
 	With the default settings this will start a local server at **127.0.0.1:8080**.
