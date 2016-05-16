@@ -26,7 +26,7 @@
 //	https://google.com
 //	Safe URL: https://google.com
 //	http://bad1url.org
-//	Unsafe URL: [{bad1url.org {MALWARE ANY_PLATFORM URL_EXPRESSION}}]
+//	Unsafe URL: [{bad1url.org {MALWARE ANY_PLATFORM URL}}]
 package main
 
 import (

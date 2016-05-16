@@ -86,7 +86,7 @@
 //	      "threatInfo": {
 //	          "threatTypes":      ["UNWANTED_SOFTWARE", "MALWARE"],
 //	          "platformTypes":    ["ANY_PLATFORM"],
-//	          "threatEntryTypes": ["URL_EXPRESSION"],
+//	          "threatEntryTypes": ["URL"],
 //	          "threatEntries": [
 //	              {"url": "google.com"},
 //	              {"url": "bad1url.org"},
@@ -102,17 +102,17 @@
 //	        "threat":          {"url": "bad1url.org"},
 //	        "platformType":    "ANY_PLATFORM",
 //	        "threatType":      "UNWANTED_SOFTWARE",
-//	        "threatEntryType": "URL_EXPRESSION"
+//	        "threatEntryType": "URL"
 //	    }, {
 //	        "threat":          {"url": "bad2url.org"},
 //	        "platformType":    "ANY_PLATFORM",
 //	        "threatType":      "UNWANTED_SOFTWARE",
-//	        "threatEntryType": "URL_EXPRESSION"
+//	        "threatEntryType": "URL"
 //	    }, {
 //	        "threat":          {"url": "bad2url.org"},
 //	        "platformType":    "ANY_PLATFORM",
 //	        "threatType":      "MALWARE",
-//	        "threatEntryType": "URL_EXPRESSION"
+//	        "threatEntryType": "URL"
 //	    }]
 //	}
 //
@@ -132,15 +132,15 @@
 //	    "threatLists": [{
 //	        "threatType":      "MALWARE"
 //	        "platformType":    "ANY_PLATFORM",
-//	        "threatEntryType": "URL_EXPRESSION",
+//	        "threatEntryType": "URL",
 //	    }, {
 //	        "threatType":      "SOCIAL_ENGINEERING",
 //	        "platformType":    "ANY_PLATFORM"
-//	        "threatEntryType": "URL_EXPRESSION",
+//	        "threatEntryType": "URL",
 //	    }, {
 //	        "threatType":      "UNWANTED_SOFTWARE"
 //	        "platformType":    "ANY_PLATFORM",
-//	        "threatEntryType": "URL_EXPRESSION",
+//	        "threatEntryType": "URL",
 //	    }]
 //	}
 //
