@@ -153,7 +153,7 @@ func TestSafeBrowser(t *testing.T) {
 		DBPath:       "/tmp/safebrowser.db",
 		UpdatePeriod: 10 * time.Second,
 		ThreatLists: []ThreatDescriptor{
-			{ThreatType_PotentiallyHarmfulApplication, PlatformType_Android, ThreatEntryType_URLExpression},
+			{ThreatType_PotentiallyHarmfulApplication, PlatformType_Android, ThreatEntryType_URL},
 		},
 	})
 	if err != nil {
