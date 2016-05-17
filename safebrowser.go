@@ -352,7 +352,7 @@ func (sb *SafeBrowser) Status() (Stats, error) {
 // For some URL at index i, one can check for a hit on any blacklist by
 // checking if len(threats[i]) > 0.
 // The ThreatEntryType field in the inner ThreatDescriptor will be set to
-// ThreatEntryType_URL as this is an URL lookup.
+// ThreatEntryType_URL as this is a URL lookup.
 //
 // If an error occurs, the caller should treat the threats list returned as a
 // best-effort response to the query. The results may be stale or be partial.
