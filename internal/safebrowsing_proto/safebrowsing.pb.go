@@ -183,9 +183,9 @@ var ThreatEntryType_name = map[int32]string{
 }
 var ThreatEntryType_value = map[string]int32{
 	"THREAT_ENTRY_TYPE_UNSPECIFIED": 0,
-	"URL":				 1,
-	"BINARY_DIGEST":                 2,
-	"IP_RANGE":                      3,
+	"URL":           1,
+	"BINARY_DIGEST": 2,
+	"IP_RANGE":      3,
 }
 
 func (x ThreatEntryType) String() string {
