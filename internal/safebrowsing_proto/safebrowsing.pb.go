@@ -168,7 +168,7 @@ const (
 	// Unspecified.
 	ThreatEntryType_THREAT_ENTRY_TYPE_UNSPECIFIED ThreatEntryType = 0
 	// A host-suffix/path-prefix URL expression; for example, "foo.bar.com/baz/".
-	ThreatEntryType_URL_EXPRESSION ThreatEntryType = 1
+	ThreatEntryType_URL ThreatEntryType = 1
 	// The digest of a binary.
 	ThreatEntryType_BINARY_DIGEST ThreatEntryType = 2
 	// An IP range.
@@ -177,15 +177,15 @@ const (
 
 var ThreatEntryType_name = map[int32]string{
 	0: "THREAT_ENTRY_TYPE_UNSPECIFIED",
-	1: "URL_EXPRESSION",
+	1: "URL",
 	2: "BINARY_DIGEST",
 	3: "IP_RANGE",
 }
 var ThreatEntryType_value = map[string]int32{
 	"THREAT_ENTRY_TYPE_UNSPECIFIED": 0,
-	"URL_EXPRESSION":                1,
-	"BINARY_DIGEST":                 2,
-	"IP_RANGE":                      3,
+	"URL":           1,
+	"BINARY_DIGEST": 2,
+	"IP_RANGE":      3,
 }
 
 func (x ThreatEntryType) String() string {

@@ -143,7 +143,7 @@ func (tet ThreatEntryType) String() string { return pb.ThreatEntryType(tet).Stri
 
 // List of ThreatEntryType constants.
 const (
-	ThreatEntryType_URLExpression = ThreatEntryType(pb.ThreatEntryType_URL_EXPRESSION)
+	ThreatEntryType_URL = ThreatEntryType(pb.ThreatEntryType_URL)
 
 	// These below are not supported yet.
 	ThreatEntryType_BinaryDigest = ThreatEntryType(pb.ThreatEntryType_BINARY_DIGEST)
@@ -153,9 +153,9 @@ const (
 // DefaultThreatLists is the default list of threat lists that SafeBrowser
 // will maintain. Do not modify this variable.
 var DefaultThreatLists = []ThreatDescriptor{
-	{ThreatType_Malware, PlatformType_AnyPlatform, ThreatEntryType_URLExpression},
-	{ThreatType_SocialEngineering, PlatformType_AnyPlatform, ThreatEntryType_URLExpression},
-	{ThreatType_UnwantedSoftware, PlatformType_AnyPlatform, ThreatEntryType_URLExpression},
+	{ThreatType_Malware, PlatformType_AnyPlatform, ThreatEntryType_URL},
+	{ThreatType_SocialEngineering, PlatformType_AnyPlatform, ThreatEntryType_URL},
+	{ThreatType_UnwantedSoftware, PlatformType_AnyPlatform, ThreatEntryType_URL},
 }
 
 // A ThreatDescriptor describes a given threat, which itself is composed of
@@ -167,7 +167,7 @@ type ThreatDescriptor struct {
 	ThreatEntryType ThreatEntryType
 }
 
-// A URLThreat is a specialized ThreatDescriptor for the URLExpression threat
+// A URLThreat is a specialized ThreatDescriptor for the URL threat
 // entry type.
 type URLThreat struct {
 	Pattern string
@@ -352,7 +352,7 @@ func (sb *SafeBrowser) Status() (Stats, error) {
 // For some URL at index i, one can check for a hit on any blacklist by
 // checking if len(threats[i]) > 0.
 // The ThreatEntryType field in the inner ThreatDescriptor will be set to
-// ThreatEntryType_URLExpression as this is an URL lookup.
+// ThreatEntryType_URL as this is a URL lookup.
 //
 // If an error occurs, the caller should treat the threats list returned as a
 // best-effort response to the query. The results may be stale or be partial.

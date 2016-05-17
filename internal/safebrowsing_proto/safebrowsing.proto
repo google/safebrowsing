@@ -333,8 +333,8 @@ enum ThreatEntryType {
   // Unspecified.
   THREAT_ENTRY_TYPE_UNSPECIFIED = 0;
 
-  // A host-suffix/path-prefix URL expression; for example, "foo.bar.com/baz/".
-  URL_EXPRESSION = 1;
+  // A URL.
+  URL = 1;
 
   // The digest of a binary.
   BINARY_DIGEST = 2;

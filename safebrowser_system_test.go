@@ -42,7 +42,7 @@ func TestNetworkAPIUpdate(t *testing.T) {
 		{
 			ThreatType:      pb.ThreatType_POTENTIALLY_HARMFUL_APPLICATION,
 			PlatformType:    pb.PlatformType_ANDROID,
-			ThreatEntryType: pb.ThreatEntryType_URL_EXPRESSION,
+			ThreatEntryType: pb.ThreatEntryType_URL,
 		}}
 	req := &pb.FetchThreatListUpdatesRequest{ListUpdateRequests: lists}
 
@@ -120,7 +120,7 @@ func TestNetworkAPILookup(t *testing.T) {
 	var c = pb.FetchThreatListUpdatesRequest_ListUpdateRequest{
 		ThreatType:      pb.ThreatType_POTENTIALLY_HARMFUL_APPLICATION,
 		PlatformType:    pb.PlatformType_ANDROID,
-		ThreatEntryType: pb.ThreatEntryType_URL_EXPRESSION,
+		ThreatEntryType: pb.ThreatEntryType_URL,
 	}
 	url := "testsafebrowsing.appspot.com/apiv4/" + c.PlatformType.String() + "/" +
 		c.ThreatType.String() + "/" + c.ThreatEntryType.String() + "/"
@@ -153,7 +153,7 @@ func TestSafeBrowser(t *testing.T) {
 		DBPath:       "/tmp/safebrowser.db",
 		UpdatePeriod: 10 * time.Second,
 		ThreatLists: []ThreatDescriptor{
-			{ThreatType_PotentiallyHarmfulApplication, PlatformType_Android, ThreatEntryType_URLExpression},
+			{ThreatType_PotentiallyHarmfulApplication, PlatformType_Android, ThreatEntryType_URL},
 		},
 	})
 	if err != nil {
@@ -163,7 +163,7 @@ func TestSafeBrowser(t *testing.T) {
 	var c = pb.FetchThreatListUpdatesRequest_ListUpdateRequest{
 		ThreatType:      pb.ThreatType_POTENTIALLY_HARMFUL_APPLICATION,
 		PlatformType:    pb.PlatformType_ANDROID,
-		ThreatEntryType: pb.ThreatEntryType_URL_EXPRESSION,
+		ThreatEntryType: pb.ThreatEntryType_URL,
 	}
 	urls := []string{
 		"http://testsafebrowsing.appspot.com/apiv4/" + c.PlatformType.String() + "/" +
