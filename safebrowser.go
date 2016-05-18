@@ -146,8 +146,8 @@ const (
 	ThreatEntryType_URL = ThreatEntryType(pb.ThreatEntryType_URL)
 
 	// These below are not supported yet.
-	ThreatEntryType_BinaryDigest = ThreatEntryType(pb.ThreatEntryType_BINARY_DIGEST)
-	ThreatEntryType_IPRange      = ThreatEntryType(pb.ThreatEntryType_IP_RANGE)
+	ThreatEntryType_Executable = ThreatEntryType(pb.ThreatEntryType_EXECUTABLE)
+	ThreatEntryType_IPRange    = ThreatEntryType(pb.ThreatEntryType_IP_RANGE)
 )
 
 // DefaultThreatLists is the default list of threat lists that SafeBrowser
