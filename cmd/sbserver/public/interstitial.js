@@ -2,33 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Controls whether the warning can be overridden.
-var overridable_ = true;
-
-// Controls whether there should be a primary button.
-var primary_button_ = true;
-
-var expandedDetails = false;
-var keyPressState = 0;
-
-// Basic commands that an embedder should handle.
-var CMD_DONT_PROCEED = 0;
-var CMD_PROCEED = 1;
-// Ways for user to get more information.
-var CMD_SHOW_MORE_SECTION = 2;
-var CMD_OPEN_HELP_CENTER = 3;
-var CMD_OPEN_DIAGNOSTIC = 4;
-
-
-/**
- * A convenience method for sending commands to the parent page.
- * @param {string} cmd  The command to send.
- */
-function sendCommand(cmd) {
-  // TODO(noelutz): Needs to be defined by the embedder.
-  // console.log('Sent command: ' + cmd);
-}
-
 /**
  * Alias for document.getElementById. Found elements must be HTMLElements.
  * @param {string} id The ID of the element to find.
@@ -39,52 +12,73 @@ function $(id) {
   return el;
 }
 
-function toggleDebuggingInfo() {
-  $('error-debugging-info').classList.toggle('hidden');
-}
+/** Namespace. */
+var interstitial = interstitial || {};
 
-function setupEvents() {
-  $('body').classList.add('safe-browsing');
 
-  if (!primary_button_) {
-    $('primary-button').classList.add('hidden');
-  } else {
-    $('primary-button').addEventListener('click', function() {
-      sendCommand(CMD_DONT_PROCEED);
-    });
-  }
+/**
+ * Whether the page is currently being viewed at a "mobile" screen size.
+ * @type {boolean}
+ * @private
+ */
+interstitial.mobileNav_ = false;
 
-  if (overridable_) {
-    $('proceed-link').addEventListener('click', function(event) {
-      sendCommand(CMD_PROCEED);
-    });
-  } else {
-    $('final-paragraph').classList.add('hidden');
-  }
 
-  if ($('help-link')) {
-    $('help-link').addEventListener('click', function(event) {
-      sendCommand(CMD_OPEN_DIAGNOSTIC);
-    });
-  }
+/**
+ * Set up event handlers for UI elements.
+ */
+interstitial.setupEvents = function() {
+  // The "back to safety" button.
+  $('primary-button').addEventListener('click', function() {
+    window.history.back();
+  });
 
+  // The "Details" button.
   $('details-button').addEventListener('click', function(event) {
     var hiddenDetails = $('details').classList.toggle('hidden');
 
-    if (mobileNav)
+    if (interstitial.mobileNav_)
       $('main-content').classList.toggle('hidden', !hiddenDetails);
     else
       $('main-content').classList.remove('hidden');
 
-    $('details-button').innerText = hiddenDetails ?
-        'Details' :
-        'Hide details';
-    if (!expandedDetails) {
-      // Record a histogram entry only the first time that details is opened.
-      sendCommand(CMD_SHOW_MORE_SECTION);
-      expandedDetails = true;
-    }
+    $('details-button').innerText = hiddenDetails ? 'Details' : 'Hide details';
   });
-}
 
-document.addEventListener('DOMContentLoaded', setupEvents);
+  // Handle resize events.
+  window.addEventListener('resize', interstitial.onResize);
+  interstitial.onResize();
+};
+
+
+/**
+ * For small screen mobile, the navigation buttons are moved below the advanced
+ * text.
+ */
+interstitial.onResize = function() {
+  var helpOuterBox = document.querySelector('#details');
+  var mainContent = document.querySelector('#main-content');
+  var mediaQuery = '(min-width: 240px) and (max-width: 420px) and ' +
+      '(max-height: 736px) and (min-height: 401px) and ' +
+      '(orientation: portrait), (max-width: 736px) and ' +
+      '(max-height: 420px) and (min-height: 240px) and ' +
+      '(min-width: 421px) and (orientation: landscape)';
+
+  var detailsHidden = helpOuterBox.classList.contains('hidden');
+
+  // Check for change in nav status.
+  if (interstitial.mobileNav_ != window.matchMedia(mediaQuery).matches) {
+    interstitial.mobileNav_ = !interstitial.mobileNav_;
+
+    if (interstitial.mobileNav_) {
+      mainContent.classList.toggle('hidden', !detailsHidden);
+      helpOuterBox.classList.toggle('hidden', detailsHidden);
+    } else if (!detailsHidden) {
+      mainContent.classList.remove('hidden');
+      helpOuterBox.classList.remove('hidden');
+    }
+  }
+};
+
+
+document.addEventListener('DOMContentLoaded', interstitial.setupEvents);
