@@ -162,7 +162,7 @@ func (c *cache) Purge() {
 						if nttl.After(pttl) {
 							c.log.Printf("hash %x: not purging since NTTL > PTTL", fullHash)
 							del = false
-							continue
+							break
 						}
 					}
 				}
