@@ -57,9 +57,9 @@ key:
 2.  Load the proxy server redirector in any web browser. Try these URLs:
 
 	```
-	127.0.0.1:8080/r?url=http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL_EXPRESSION/
-	127.0.0.1:8080/r?url=http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/SOCIAL_ENGINEERING/URL_EXPRESSION/
-	127.0.0.1:8080/r?url=http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/UNWANTED_SOFTWARE/URL_EXPRESSION/
+	127.0.0.1:8080/r?url=http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/
+	127.0.0.1:8080/r?url=http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/SOCIAL_ENGINEERING/URL/
+	127.0.0.1:8080/r?url=http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/UNWANTED_SOFTWARE/URL/
 	127.0.0.1:8080/r?url=http://www.google.com/
 	```
 
@@ -71,7 +71,7 @@ following JSON body:
 		"threatInfo": {
 			"threatEntries": [
 				{"url": "google.com"},
-				{"url": "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL_EXPRESSION/"}
+				{"url": "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/"}
 			]
 		}
 	}
@@ -90,8 +90,8 @@ command-line tool filters unsafe URLs piped via STDIN. Example usage:
 
 ```
 $ go get github.com/google/safebrowsing/cmd/sblookup
-$ echo "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL_EXPRESSION/" | sblookup -apikey=$APIKEY
-  Unsafe URL found:  http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL_EXPRESSION/ [{testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL_EXPRESSION/ {MALWARE ANY_PLATFORM URL_EXPRESSION}}]
+$ echo "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/" | sblookup -apikey=$APIKEY
+  Unsafe URL found:  http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/ [{testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/ {MALWARE ANY_PLATFORM URL}}]
 ```
 
 
