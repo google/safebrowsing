@@ -49,14 +49,22 @@ Tool reads one URL per line from STDIN and checks every URL against the
 Safe Browsing API. The Safe or Unsafe verdict is printed to STDOUT. If an error
 occurred, debug information may be printed to STDERR.
 
-Exit codes:
-  0     if all URLs were looked up an are safe.
-  1     if at least one URL is not safe.
-  128   if at least one URL lookup failed.
+Exit codes (bitwise OR of following codes):
+  0  if and only if all URLs were looked up and are safe.
+  1  if at least one URL is not safe.
+  2  if at least one URL lookup failed.
+  4  if the input was invalid.
 
 Usage: %s -apikey=$APIKEY
 
 `
+
+const (
+	codeSafe = (1 << iota) / 2 // Sequence of 0, 1, 2, 4, 8, etc...
+	codeUnsafe
+	codeFailed
+	codeInvalid
+)
 
 func main() {
 	flag.Usage = func() {
@@ -66,7 +74,7 @@ func main() {
 	flag.Parse()
 	if *apiKeyFlag == "" {
 		fmt.Fprintln(os.Stderr, "No -apikey specified")
-		os.Exit(1)
+		os.Exit(codeInvalid)
 	}
 	sb, err := safebrowsing.NewSafeBrowser(safebrowsing.Config{
 		APIKey: *apiKeyFlag,
@@ -75,34 +83,28 @@ func main() {
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Unable to initialize Safe Browsing client: ", err)
-		os.Exit(1)
+		os.Exit(codeInvalid)
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
-	code := 0
+	code := codeSafe
 	for scanner.Scan() {
 		url := scanner.Text()
 		threats, err := sb.LookupURLs([]string{url})
 		if err != nil {
+			fmt.Fprintln(os.Stdout, "Unknown URL:", url)
 			fmt.Fprintln(os.Stderr, "Lookup error:", err)
-			if code != 0 {
-				code = 128 // Invalid argument.
-			}
-		}
-		if len(threats[0]) == 0 {
+			code |= codeFailed
+		} else if len(threats[0]) == 0 {
 			fmt.Fprintln(os.Stdout, "Safe URL:", url)
 		} else {
 			fmt.Fprintln(os.Stdout, "Unsafe URL:", threats[0])
-			if code != 0 {
-				code = 1
-			}
+			code |= codeUnsafe
 		}
 	}
 	if scanner.Err() != nil {
 		fmt.Fprintln(os.Stderr, "Unable to read input:", scanner.Err())
-		if code != 0 {
-			code = 128 // Invalid argument.
-		}
+		code |= codeInvalid
 	}
 	os.Exit(code)
 }
