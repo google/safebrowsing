@@ -220,9 +220,10 @@ const (
 )
 
 var (
-	apiKeyFlag   = flag.String("apikey", "", "specify your Safe Browsing API key")
-	srvAddrFlag  = flag.String("srvaddr", "localhost:8080", "TCP network address the HTTP server should use")
-	databaseFlag = flag.String("db", "", "path to the Safe Browsing database.")
+	apiKeyFlag       = flag.String("apikey", "", "specify your Safe Browsing API key")
+	srvAddrFlag      = flag.String("srvaddr", "localhost:8080", "TCP network address the HTTP server should use")
+	databaseFlag     = flag.String("db", "", "path to the Safe Browsing database.")
+	updatePeriodFlag = flag.Duration("updateperiod", safebrowsing.DefaultUpdatePeriod, "the update period for the Safe Browsing database in minutes.")
 )
 
 var threatTemplate = map[safebrowsing.ThreatType]string{
@@ -507,6 +508,7 @@ func main() {
 		APIKey: *apiKeyFlag,
 		DBPath: *databaseFlag,
 		Logger: os.Stderr,
+		UpdatePeriod: *updatePeriodFlag,
 	}
 	sb, err := safebrowsing.NewSafeBrowser(conf)
 	if err != nil {
