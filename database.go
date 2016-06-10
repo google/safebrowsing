@@ -72,7 +72,7 @@ type partialHashes struct {
 	State  []byte // Arbitrary binary blob to synchronize state with API
 }
 
-type threatsByHash map[hashPrefix]map[ThreatDescriptor]bool
+type threatsByHash map[hashPrefix][]ThreatDescriptor
 
 // databaseFormat is a light struct used only for gob encoding and decoding.
 // As written to disk, the format of the database file is basically the gzip
@@ -208,7 +208,7 @@ func (db *database) Update(api api) {
 // hash and a set of ThreatDescriptors that may match the full hash.
 //
 // The ThreatDescriptor set must not be mutated.
-func (db *database) Lookup(hash hashPrefix) (hashPrefix, map[ThreatDescriptor]bool) {
+func (db *database) Lookup(hash hashPrefix) (hashPrefix, []ThreatDescriptor) {
 	if !hash.IsFull() {
 		panic("hash is not full")
 	}
@@ -243,13 +243,9 @@ func (db *database) generateThreatsByHash(last time.Time) {
 	tbh := make(threatsByHash)
 	for td, phs := range db.tbd {
 		for _, h := range phs.Hashes {
-			if tbh[h] == nil {
-				tbh[h] = make(map[ThreatDescriptor]bool)
-			}
-			tbh[h][td] = true
+			tbh[h] = append(tbh[h], td)
 		}
 	}
-
 	db.mh.Lock()
 	wasBad := db.err != nil
 	db.tbh, db.err, db.last = tbh, nil, last
@@ -356,10 +352,6 @@ func (tbd threatsByDescriptor) update(resp *pb.FetchThreatListUpdatesResponse) e
 		default:
 			return errors.New("safebrowsing: unknown response type")
 		}
-
-		// Make a copy of the original hashes.
-		// If we fail the SHA256 check, we should maintain the previous state.
-		phs.Hashes = append([]hashPrefix(nil), phs.Hashes...)
 
 		for _, removal := range m.Removals {
 			idxs, err := decodeIndices(removal)

@@ -49,6 +49,48 @@ func mustDecodeHex(t *testing.T, s string) []byte {
 	return buf
 }
 
+type ByThreatDescriptors []ThreatDescriptor
+
+func (slice ByThreatDescriptors) Len() int {
+	return len(slice)
+}
+
+func (slice ByThreatDescriptors) Less(i, j int) bool {
+	if slice[i].ThreatType != slice[j].ThreatType {
+		return slice[i].ThreatType < slice[j].ThreatType
+	}
+
+	if slice[i].PlatformType != slice[j].PlatformType {
+		return slice[i].PlatformType < slice[j].PlatformType
+	}
+	return slice[i].ThreatEntryType < slice[j].ThreatEntryType
+}
+
+func (slice ByThreatDescriptors) Swap(i, j int) {
+	slice[i], slice[j] = slice[j], slice[i]
+}
+
+func Equal(tbh1, tbh2 threatsByHash) bool {
+	if len(tbh1) != len(tbh2) {
+		return false
+	}
+	for h, tds1 := range tbh1 {
+		t1 := tds1
+		sort.Sort(ByThreatDescriptors(t1))
+		tds2, ok := tbh2[h]
+		if !ok {
+			return false
+		}
+		t2 := tds2
+		sort.Sort(ByThreatDescriptors(t2))
+		if !reflect.DeepEqual(t1, t2) {
+			log.Println("%v \n%v", h, t1, t2)
+			return false
+		}
+	}
+	return true
+}
+
 func TestDatabaseInit(t *testing.T) {
 	path := mustGetTempFile(t)
 	defer os.Remove(path)
@@ -100,9 +142,9 @@ func TestDatabaseInit(t *testing.T) {
 				},
 			},
 			tbh: threatsByHash{
-				"aaa": map[ThreatDescriptor]bool{{0, 2, 3}: true},
-				"bbb": map[ThreatDescriptor]bool{{0, 2, 3}: true, {1, 2, 3}: true},
-				"ccc": map[ThreatDescriptor]bool{{1, 2, 3}: true},
+				"aaa": []ThreatDescriptor{{0, 2, 3}},
+				"bbb": []ThreatDescriptor{{0, 2, 3}, {1, 2, 3}},
+				"ccc": []ThreatDescriptor{{1, 2, 3}},
 			},
 		},
 	}, {
@@ -139,8 +181,8 @@ func TestDatabaseInit(t *testing.T) {
 				},
 			},
 			tbh: threatsByHash{
-				"aaa": map[ThreatDescriptor]bool{{0, 2, 3}: true},
-				"bbb": map[ThreatDescriptor]bool{{0, 2, 3}: true},
+				"aaa": []ThreatDescriptor{{0, 2, 3}},
+				"bbb": []ThreatDescriptor{{0, 2, 3}},
 			},
 		},
 	}, {
@@ -237,9 +279,10 @@ func TestDatabaseInit(t *testing.T) {
 		if fail := !db2.Init(v.config, logger); fail != v.fail {
 			t.Errorf("test %d, mismatching status:\ngot  %v\nwant %v", i, fail, v.fail)
 		}
-
-		db2.config, db2.log, db2.err = nil, nil, nil
-		if !reflect.DeepEqual(db2, v.newDB) {
+		if !reflect.DeepEqual(db2.tbd, v.newDB.tbd) {
+			t.Errorf("test %d, mismatching database contents:\ngot  %+v\nwant %+v", i, db2, v.newDB)
+		}
+		if !Equal(db2.tbh, v.newDB.tbh) {
 			t.Errorf("test %d, mismatching database contents:\ngot  %+v\nwant %+v", i, db2, v.newDB)
 		}
 	}
@@ -299,13 +342,6 @@ func TestDatabaseUpdate(t *testing.T) {
 			}
 		}
 		return resp
-	}
-	tdSet := func(tds []ThreatDescriptor) map[ThreatDescriptor]bool {
-		m := make(map[ThreatDescriptor]bool)
-		for _, td := range tds {
-			m[td] = true
-		}
-		return m
 	}
 
 	// Setup mocking objects.
@@ -386,20 +422,23 @@ func TestDatabaseUpdate(t *testing.T) {
 			},
 		},
 		tbh: threatsByHash{
-			"0421e":          tdSet([]ThreatDescriptor{td013, td114}),
-			"0421f":          tdSet([]ThreatDescriptor{td013}),
-			"666666":         tdSet([]ThreatDescriptor{td114}),
-			"7777777":        tdSet([]ThreatDescriptor{td114}),
-			"88888888":       tdSet([]ThreatDescriptor{td114}),
-			"a64392f6f89487": tdSet([]ThreatDescriptor{td013}),
-			"aaaa":           tdSet([]ThreatDescriptor{td013, td014, td114}),
-			"bbbb":           tdSet([]ThreatDescriptor{td014, td013}),
-			"cccc":           tdSet([]ThreatDescriptor{td014, td013}),
-			"dddd":           tdSet([]ThreatDescriptor{td014}),
+			"0421e":          []ThreatDescriptor{td114, td013},
+			"0421f":          []ThreatDescriptor{td013},
+			"666666":         []ThreatDescriptor{td114},
+			"7777777":        []ThreatDescriptor{td114},
+			"88888888":       []ThreatDescriptor{td114},
+			"a64392f6f89487": []ThreatDescriptor{td013},
+			"aaaa":           []ThreatDescriptor{td114, td014, td013},
+			"bbbb":           []ThreatDescriptor{td014, td013},
+			"cccc":           []ThreatDescriptor{td014, td013},
+			"dddd":           []ThreatDescriptor{td014},
 		},
 	}
-	if !reflect.DeepEqual(gotDB, wantDB) {
-		t.Fatalf("update 1, database state mismatch:\ngot  %+v\nwant %+v", gotDB, wantDB)
+	if !reflect.DeepEqual(gotDB.tbd, wantDB.tbd) {
+		t.Errorf("update 1, database by descriptor state mismatch:\ngot  %+v\nwant %+v", gotDB.tbd, wantDB.tbd)
+	}
+	if !Equal(gotDB.tbh, wantDB.tbh) {
+		t.Fatalf("update 1, database by hash state mismatch:\ngot  %+v\nwant %+v", gotDB.tbh, wantDB.tbh)
 	}
 
 	// Update 2: partial update with no changes.
@@ -422,8 +461,12 @@ func TestDatabaseUpdate(t *testing.T) {
 	}
 	gotDB = &database{last: db.last, tbd: db.tbd, tbh: db.tbh}
 	wantDB.last = now
-	if !reflect.DeepEqual(gotDB, wantDB) {
-		t.Fatalf("update 2, database state mismatch:\ngot  %+v\nwant %+v", gotDB, wantDB)
+
+	if !reflect.DeepEqual(gotDB.tbd, wantDB.tbd) {
+		t.Errorf("update 2, database by descriptor state mismatch:\ngot  %+v\nwant %+v", gotDB.tbd, wantDB.tbd)
+	}
+	if !Equal(gotDB.tbh, wantDB.tbh) {
+		t.Fatalf("update 2, database by hash state mismatch:\ngot  %+v\nwant %+v", gotDB.tbh, wantDB.tbh)
 	}
 
 	// Update 3: full update and partial update with removals and additions.
@@ -470,14 +513,14 @@ func TestDatabaseUpdate(t *testing.T) {
 			},
 		},
 		tbh: threatsByHash{
-			"0421E": tdSet([]ThreatDescriptor{td114}),
-			"0421f": tdSet([]ThreatDescriptor{td013}),
-			"aaaa":  tdSet([]ThreatDescriptor{td013, td113, td014}),
-			"AAAA":  tdSet([]ThreatDescriptor{td114}),
-			"bbbb":  tdSet([]ThreatDescriptor{td113}),
-			"cccc":  tdSet([]ThreatDescriptor{td013, td113, td014}),
-			"eeee":  tdSet([]ThreatDescriptor{td014}),
-			"ffff":  tdSet([]ThreatDescriptor{td014}),
+			"0421E": []ThreatDescriptor{td114},
+			"0421f": []ThreatDescriptor{td013},
+			"aaaa":  []ThreatDescriptor{td013, td113, td014},
+			"AAAA":  []ThreatDescriptor{td114},
+			"bbbb":  []ThreatDescriptor{td113},
+			"cccc":  []ThreatDescriptor{td013, td113, td014},
+			"eeee":  []ThreatDescriptor{td014},
+			"ffff":  []ThreatDescriptor{td014},
 		},
 	}
 	if !reflect.DeepEqual(gotDB, wantDB) {
@@ -521,14 +564,6 @@ func TestDatabaseUpdate(t *testing.T) {
 }
 
 func TestDatabaseLookup(t *testing.T) {
-	tdSet := func(tds []ThreatDescriptor) map[ThreatDescriptor]bool {
-		m := make(map[ThreatDescriptor]bool)
-		for _, td := range tds {
-			m[td] = true
-		}
-		return m
-	}
-
 	var (
 		td000 = ThreatDescriptor{0, 0, 0}
 		td001 = ThreatDescriptor{0, 0, 1}
@@ -541,19 +576,19 @@ func TestDatabaseLookup(t *testing.T) {
 	)
 
 	db := &database{tbh: threatsByHash{
-		"1e25395a9b1b8": tdSet([]ThreatDescriptor{td123, td234, td567, td678}),
-		"26e307":        tdSet([]ThreatDescriptor{td567, td001, td000}),
-		"3f93":          tdSet([]ThreatDescriptor{td123, td012, td001}),
-		"524d":          tdSet([]ThreatDescriptor{td000, td678, td456, td678, td567}),
-		"59b8":          tdSet([]ThreatDescriptor{td456}),
-		"5c6655d2":      tdSet([]ThreatDescriptor{td123}),
-		"5c6655d3":      tdSet([]ThreatDescriptor{td012, td456}),
-		"5c6655d4":      tdSet([]ThreatDescriptor{td001, td012, td000}),
-		"5c6655d5":      tdSet([]ThreatDescriptor{td123, td567}),
-		"7294":          tdSet([]ThreatDescriptor{td001, td678, td567, td012, td123}),
-		"cad78c1c":      tdSet([]ThreatDescriptor{td456, td456, td123, td567}),
-		"cad78c628":     tdSet([]ThreatDescriptor{td678, td234}),
-		"cad78c68":      tdSet([]ThreatDescriptor{td234}),
+		"1e25395a9b1b8": []ThreatDescriptor{td123, td234, td567, td678},
+		"26e307":        []ThreatDescriptor{td567, td001, td000},
+		"3f93":          []ThreatDescriptor{td123, td012, td001},
+		"524d":          []ThreatDescriptor{td000, td678, td456, td678, td567},
+		"59b8":          []ThreatDescriptor{td456},
+		"5c6655d2":      []ThreatDescriptor{td123},
+		"5c6655d3":      []ThreatDescriptor{td012, td456},
+		"5c6655d4":      []ThreatDescriptor{td001, td012, td000},
+		"5c6655d5":      []ThreatDescriptor{td123, td567},
+		"7294":          []ThreatDescriptor{td001, td678, td567, td012, td123},
+		"cad78c1c":      []ThreatDescriptor{td456, td456, td123, td567},
+		"cad78c628":     []ThreatDescriptor{td678, td234},
+		"cad78c68":      []ThreatDescriptor{td234},
 	}}
 
 	vectors := []struct {

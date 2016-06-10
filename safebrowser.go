@@ -104,7 +104,7 @@ var (
 
 // ThreatType is an enumeration type for threats classes. Examples of threat
 // classes are malware, social engineering, etc.
-type ThreatType pb.ThreatType
+type ThreatType uint16
 
 func (tt ThreatType) String() string { return pb.ThreatType(tt).String() }
 
@@ -118,7 +118,7 @@ const (
 
 // PlatformType is an enumeration type for platform classes. Examples of
 // platform classes are Windows, Linux, Android, etc.
-type PlatformType pb.PlatformType
+type PlatformType uint16
 
 func (pt PlatformType) String() string { return pb.PlatformType(pt).String() }
 
@@ -137,7 +137,7 @@ const (
 
 // ThreatEntryType is an enumeration type for threat entries. Examples of
 // threat entries are via URLs, binary digests, and IP address ranges.
-type ThreatEntryType pb.ThreatEntryType
+type ThreatEntryType uint16
 
 func (tet ThreatEntryType) String() string { return pb.ThreatEntryType(tet).String() }
 
@@ -409,7 +409,7 @@ func (sb *SafeBrowser) LookupURLs(urls []string) (threats [][]URLThreat, err err
 				// The cache remembers this full hash as a threat.
 				// The threats we return to the client is the set intersection
 				// of unsureThreats and cachedThreats.
-				for td := range unsureThreats {
+				for _, td := range unsureThreats {
 					if _, ok := cachedThreats[td]; ok {
 						threats[i] = append(threats[i], URLThreat{
 							Pattern:          pattern,
@@ -424,7 +424,7 @@ func (sb *SafeBrowser) LookupURLs(urls []string) (threats [][]URLThreat, err err
 			default:
 				// The cache knows nothing about this full hash, so we must make
 				// a request for it.
-				for td := range unsureThreats {
+				for _, td := range unsureThreats {
 					ttm[pb.ThreatType(td.ThreatType)] = true
 					ptm[pb.PlatformType(td.PlatformType)] = true
 					tetm[pb.ThreatEntryType(td.ThreatEntryType)] = true
