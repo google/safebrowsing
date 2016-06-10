@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/google/safebrowsing.svg?branch=master)](https://travis-ci.org/google/safebrowsing)
+
 # Reference Implementation for the Usage of Google Safe Browsing APIs (v4)
 
 The `safebrowsing` Go package can be used with the
