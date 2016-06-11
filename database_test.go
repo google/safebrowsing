@@ -523,8 +523,11 @@ func TestDatabaseUpdate(t *testing.T) {
 			"ffff":  []ThreatDescriptor{td014},
 		},
 	}
-	if !reflect.DeepEqual(gotDB, wantDB) {
-		t.Fatalf("update 3, database state mismatch:\ngot  %+v\nwant %+v", gotDB, wantDB)
+	if !reflect.DeepEqual(gotDB.tbd, wantDB.tbd) {
+		t.Errorf("update 3, database by descriptor state mismatch:\ngot  %+v\nwant %+v", gotDB.tbd, wantDB.tbd)
+	}
+	if !Equal(gotDB.tbh, wantDB.tbh) {
+		t.Fatalf("update 3, database by hash state mismatch:\ngot  %+v\nwant %+v", gotDB.tbh, wantDB.tbh)
 	}
 	// Update 4: invalid SHA256 checksum.
 	now = now.Add(time.Hour)
