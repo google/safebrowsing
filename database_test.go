@@ -49,46 +49,9 @@ func mustDecodeHex(t *testing.T, s string) []byte {
 	return buf
 }
 
-type ByThreatDescriptors []ThreatDescriptor
-
-func (slice ByThreatDescriptors) Len() int {
-	return len(slice)
-}
-
-func (slice ByThreatDescriptors) Less(i, j int) bool {
-	if slice[i].ThreatType != slice[j].ThreatType {
-		return slice[i].ThreatType < slice[j].ThreatType
-	}
-
-	if slice[i].PlatformType != slice[j].PlatformType {
-		return slice[i].PlatformType < slice[j].PlatformType
-	}
-	return slice[i].ThreatEntryType < slice[j].ThreatEntryType
-}
-
-func (slice ByThreatDescriptors) Swap(i, j int) {
-	slice[i], slice[j] = slice[j], slice[i]
-}
-
-func Equal(tbh1, tbh2 threatsByHash) bool {
-	if len(tbh1) != len(tbh2) {
-		return false
-	}
-	for h, tds1 := range tbh1 {
-		t1 := tds1
-		sort.Sort(ByThreatDescriptors(t1))
-		tds2, ok := tbh2[h]
-		if !ok {
-			return false
-		}
-		t2 := tds2
-		sort.Sort(ByThreatDescriptors(t2))
-		if !reflect.DeepEqual(t1, t2) {
-			log.Println("%v \n%v", h, t1, t2)
-			return false
-		}
-	}
-	return true
+func newHashSet(phs hashPrefixes) (hs hashSet) {
+	hs.Import(phs)
+	return hs
 }
 
 func TestDatabaseInit(t *testing.T) {
@@ -114,37 +77,34 @@ func TestDatabaseInit(t *testing.T) {
 		},
 		oldDB: &database{
 			last: now.Add(-DefaultUpdatePeriod + time.Minute),
-			tbd: threatsByDescriptor{
+			tfu: threatsForUpdate{
 				{0, 2, 3}: partialHashes{
-					Hashes: []hashPrefix{"aaa", "bbb"},
-					SHA256: mustDecodeHex(t, "2ce109e9d0faf820b2434e166297934e6177b65ab9951dbc3e204cad4689b39c"),
+					Hashes: []hashPrefix{"aaaa", "bbbb"},
+					SHA256: mustDecodeHex(t, "e5c1edb50ff8b4fcc3ead3a845ffbe1ad51c9dae5d44335a5c333b57ac8df062"),
 					State:  []byte("state1"),
 				},
 				{1, 2, 3}: partialHashes{
-					Hashes: []hashPrefix{"bbb", "ccc"},
-					SHA256: mustDecodeHex(t, "b0c834406bff3cc7a40bf117469aff269f2c0f8c53a8c248c5da72daa2794f57"),
+					Hashes: []hashPrefix{"bbbb", "cccc"},
+					SHA256: mustDecodeHex(t, "9a720c6ee500f5a0d4e5477fc9f3d8573226723d0b338b0c8f572d877bdfa224"),
 					State:  []byte("state2"),
 				},
 			},
 		},
 		newDB: &database{
 			last: now.Add(-DefaultUpdatePeriod + time.Minute),
-			tbd: threatsByDescriptor{
+			tfu: threatsForUpdate{
 				{0, 2, 3}: partialHashes{
-					Hashes: []hashPrefix{"aaa", "bbb"},
-					SHA256: mustDecodeHex(t, "2ce109e9d0faf820b2434e166297934e6177b65ab9951dbc3e204cad4689b39c"),
+					SHA256: mustDecodeHex(t, "e5c1edb50ff8b4fcc3ead3a845ffbe1ad51c9dae5d44335a5c333b57ac8df062"),
 					State:  []byte("state1"),
 				},
 				{1, 2, 3}: partialHashes{
-					Hashes: []hashPrefix{"bbb", "ccc"},
-					SHA256: mustDecodeHex(t, "b0c834406bff3cc7a40bf117469aff269f2c0f8c53a8c248c5da72daa2794f57"),
+					SHA256: mustDecodeHex(t, "9a720c6ee500f5a0d4e5477fc9f3d8573226723d0b338b0c8f572d877bdfa224"),
 					State:  []byte("state2"),
 				},
 			},
-			tbh: threatsByHash{
-				"aaa": []ThreatDescriptor{{0, 2, 3}},
-				"bbb": []ThreatDescriptor{{0, 2, 3}, {1, 2, 3}},
-				"ccc": []ThreatDescriptor{{1, 2, 3}},
+			tfl: threatsForLookup{
+				{0, 2, 3}: newHashSet([]hashPrefix{"aaaa", "bbbb"}),
+				{1, 2, 3}: newHashSet([]hashPrefix{"bbbb", "cccc"}),
 			},
 		},
 	}, {
@@ -154,15 +114,15 @@ func TestDatabaseInit(t *testing.T) {
 		},
 		oldDB: &database{
 			last: now,
-			tbd: threatsByDescriptor{
+			tfu: threatsForUpdate{
 				{0, 2, 3}: partialHashes{
-					Hashes: []hashPrefix{"aaa", "bbb"},
-					SHA256: mustDecodeHex(t, "2ce109e9d0faf820b2434e166297934e6177b65ab9951dbc3e204cad4689b39c"),
+					Hashes: []hashPrefix{"aaaa", "bbbb"},
+					SHA256: mustDecodeHex(t, "e5c1edb50ff8b4fcc3ead3a845ffbe1ad51c9dae5d44335a5c333b57ac8df062"),
 					State:  []byte("state1"),
 				},
 				{1, 2, 3}: partialHashes{
-					Hashes: []hashPrefix{"bbb", "ccc"},
-					SHA256: mustDecodeHex(t, "b0c834406bff3cc7a40bf117469aff269f2c0f8c53a8c248c5da72daa2794f57"),
+					Hashes: []hashPrefix{"bbbb", "cccc"},
+					SHA256: mustDecodeHex(t, "9a720c6ee500f5a0d4e5477fc9f3d8573226723d0b338b0c8f572d877bdfa224"),
 					State:  []byte("state2"),
 				},
 				{3, 2, 3}: partialHashes{
@@ -173,16 +133,14 @@ func TestDatabaseInit(t *testing.T) {
 		},
 		newDB: &database{
 			last: now,
-			tbd: threatsByDescriptor{
+			tfu: threatsForUpdate{
 				{0, 2, 3}: partialHashes{
-					Hashes: []hashPrefix{"aaa", "bbb"},
-					SHA256: mustDecodeHex(t, "2ce109e9d0faf820b2434e166297934e6177b65ab9951dbc3e204cad4689b39c"),
+					SHA256: mustDecodeHex(t, "e5c1edb50ff8b4fcc3ead3a845ffbe1ad51c9dae5d44335a5c333b57ac8df062"),
 					State:  []byte("state1"),
 				},
 			},
-			tbh: threatsByHash{
-				"aaa": []ThreatDescriptor{{0, 2, 3}},
-				"bbb": []ThreatDescriptor{{0, 2, 3}},
+			tfl: threatsForLookup{
+				{0, 2, 3}: newHashSet([]hashPrefix{"aaaa", "bbbb"}),
 			},
 		},
 	}, {
@@ -197,15 +155,15 @@ func TestDatabaseInit(t *testing.T) {
 		},
 		oldDB: &database{
 			last: now,
-			tbd: threatsByDescriptor{
+			tfu: threatsForUpdate{
 				{0, 2, 3}: partialHashes{
-					Hashes: []hashPrefix{"aaa", "bbb"},
-					SHA256: mustDecodeHex(t, "2ce109e9d0faf820b2434e166297934e6177b65ab9951dbc3e204cad4689b39c"),
+					Hashes: []hashPrefix{"aaaa", "bbbb"},
+					SHA256: mustDecodeHex(t, "e5c1edb50ff8b4fcc3ead3a845ffbe1ad51c9dae5d44335a5c333b57ac8df062"),
 					State:  []byte("state1"),
 				},
 				{1, 2, 3}: partialHashes{
-					Hashes: []hashPrefix{"bbb", "ccc"},
-					SHA256: mustDecodeHex(t, "b0c834406bff3cc7a40bf117469aff269f2c0f8c53a8c248c5da72daa2794f57"),
+					Hashes: []hashPrefix{"bbbb", "cccc"},
+					SHA256: mustDecodeHex(t, "9a720c6ee500f5a0d4e5477fc9f3d8573226723d0b338b0c8f572d877bdfa224"),
 					State:  []byte("state2"),
 				},
 				{0, 1, 3}: partialHashes{
@@ -214,8 +172,7 @@ func TestDatabaseInit(t *testing.T) {
 				},
 			},
 		},
-		newDB: &database{},
-		fail:  true,
+		fail: true,
 	}, {
 		// Load from a stale database file.
 		config: &Config{
@@ -227,21 +184,20 @@ func TestDatabaseInit(t *testing.T) {
 		},
 		oldDB: &database{
 			last: now.Add(-DefaultUpdatePeriod - time.Minute),
-			tbd: threatsByDescriptor{
+			tfu: threatsForUpdate{
 				{0, 2, 3}: partialHashes{
-					Hashes: []hashPrefix{"aaa", "bbb"},
-					SHA256: mustDecodeHex(t, "2ce109e9d0faf820b2434e166297934e6177b65ab9951dbc3e204cad4689b39c"),
+					Hashes: []hashPrefix{"aaaa", "bbbb"},
+					SHA256: mustDecodeHex(t, "e5c1edb50ff8b4fcc3ead3a845ffbe1ad51c9dae5d44335a5c333b57ac8df062"),
 					State:  []byte("state1"),
 				},
 				{1, 2, 3}: partialHashes{
-					Hashes: []hashPrefix{"bbb", "ccc"},
-					SHA256: mustDecodeHex(t, "b0c834406bff3cc7a40bf117469aff269f2c0f8c53a8c248c5da72daa2794f57"),
+					Hashes: []hashPrefix{"bbbb", "cccc"},
+					SHA256: mustDecodeHex(t, "9a720c6ee500f5a0d4e5477fc9f3d8573226723d0b338b0c8f572d877bdfa224"),
 					State:  []byte("state2"),
 				},
 			},
 		},
-		newDB: &database{},
-		fail:  true,
+		fail: true,
 	}, {
 		// Load from a corrupted database file (has bad SHA256 checksums).
 		config: &Config{
@@ -252,16 +208,15 @@ func TestDatabaseInit(t *testing.T) {
 		},
 		oldDB: &database{
 			last: now,
-			tbd: threatsByDescriptor{
+			tfu: threatsForUpdate{
 				{0, 2, 3}: partialHashes{
-					Hashes: []hashPrefix{"aaa", "bbb"},
+					Hashes: []hashPrefix{"aaaa", "bbbb"},
 					State:  []byte("state1"),
 					SHA256: []byte("bad checksum"),
 				},
 			},
 		},
-		newDB: &database{},
-		fail:  true,
+		fail: true,
 	}}
 
 	logger := log.New(ioutil.Discard, "", 0)
@@ -277,12 +232,11 @@ func TestDatabaseInit(t *testing.T) {
 		db2 := new(database)
 		v.config.now = mockNow
 		if fail := !db2.Init(v.config, logger); fail != v.fail {
-			t.Errorf("test %d, mismatching status:\ngot  %v\nwant %v", i, fail, v.fail)
+			t.Errorf("test %d, mismatching status: got %v, want %v", i, fail, v.fail)
 		}
-		if !reflect.DeepEqual(db2.tbd, v.newDB.tbd) {
-			t.Errorf("test %d, mismatching database contents:\ngot  %+v\nwant %+v", i, db2, v.newDB)
-		}
-		if !Equal(db2.tbh, v.newDB.tbh) {
+
+		db2.config, db2.log = nil, nil
+		if !v.fail && !reflect.DeepEqual(db2, v.newDB) {
 			t.Errorf("test %d, mismatching database contents:\ngot  %+v\nwant %+v", i, db2, v.newDB)
 		}
 	}
@@ -397,48 +351,27 @@ func TestDatabaseUpdate(t *testing.T) {
 	if db.err != nil {
 		t.Fatalf("update 1, unexpected update error: %v", db.err)
 	}
-	gotDB = &database{last: db.last, tbd: db.tbd, tbh: db.tbh}
+	gotDB = &database{last: db.last, tfu: db.tfu, tfl: db.tfl}
 	wantDB = &database{
 		last: now,
-		tbd: threatsByDescriptor{
-			td013: {
-				Hashes: []hashPrefix{"0421e", "0421f", "a64392f6f89487", "aaaa", "bbbb", "cccc"},
-				SHA256: gotDB.tbd[td013].SHA256,
-				State:  []byte{0x61, 0x31},
-			},
-			td113: {
-				SHA256: gotDB.tbd[td113].SHA256,
-				State:  []byte{0x62, 0x31},
-			},
-			td014: {
-				Hashes: []hashPrefix{"aaaa", "bbbb", "cccc", "dddd"},
-				SHA256: gotDB.tbd[td014].SHA256,
-				State:  []byte{0x63, 0x31},
-			},
-			td114: {
-				Hashes: []hashPrefix{"0421e", "666666", "7777777", "88888888", "aaaa"},
-				SHA256: gotDB.tbd[td114].SHA256,
-				State:  []byte{0x64, 0x31},
-			},
+		tfu: threatsForUpdate{
+			td013: {SHA256: gotDB.tfu[td013].SHA256, State: []byte{0x61, 0x31}},
+			td113: {SHA256: gotDB.tfu[td113].SHA256, State: []byte{0x62, 0x31}},
+			td014: {SHA256: gotDB.tfu[td014].SHA256, State: []byte{0x63, 0x31}},
+			td114: {SHA256: gotDB.tfu[td114].SHA256, State: []byte{0x64, 0x31}},
 		},
-		tbh: threatsByHash{
-			"0421e":          []ThreatDescriptor{td114, td013},
-			"0421f":          []ThreatDescriptor{td013},
-			"666666":         []ThreatDescriptor{td114},
-			"7777777":        []ThreatDescriptor{td114},
-			"88888888":       []ThreatDescriptor{td114},
-			"a64392f6f89487": []ThreatDescriptor{td013},
-			"aaaa":           []ThreatDescriptor{td114, td014, td013},
-			"bbbb":           []ThreatDescriptor{td014, td013},
-			"cccc":           []ThreatDescriptor{td014, td013},
-			"dddd":           []ThreatDescriptor{td014},
+		tfl: threatsForLookup{
+			td013: newHashSet([]hashPrefix{"0421e", "0421f", "a64392f6f89487", "aaaa", "bbbb", "cccc"}),
+			td113: newHashSet([]hashPrefix{}),
+			td014: newHashSet([]hashPrefix{"aaaa", "bbbb", "cccc", "dddd"}),
+			td114: newHashSet([]hashPrefix{"0421e", "666666", "7777777", "88888888", "aaaa"}),
 		},
 	}
-	if !reflect.DeepEqual(gotDB.tbd, wantDB.tbd) {
-		t.Errorf("update 1, database by descriptor state mismatch:\ngot  %+v\nwant %+v", gotDB.tbd, wantDB.tbd)
+	if !reflect.DeepEqual(gotDB.tfu, wantDB.tfu) {
+		t.Errorf("update 1, threats for update mismatch:\ngot  %+v\nwant %+v", gotDB.tfu, wantDB.tfu)
 	}
-	if !Equal(gotDB.tbh, wantDB.tbh) {
-		t.Fatalf("update 1, database by hash state mismatch:\ngot  %+v\nwant %+v", gotDB.tbh, wantDB.tbh)
+	if !reflect.DeepEqual(gotDB.tfl, wantDB.tfl) {
+		t.Fatalf("update 1, threats for lookup mismatch:\ngot  %+v\nwant %+v", gotDB.tfl, wantDB.tfl)
 	}
 
 	// Update 2: partial update with no changes.
@@ -459,14 +392,13 @@ func TestDatabaseUpdate(t *testing.T) {
 	if db.err != nil {
 		t.Fatalf("update 2, unexpected update error: %v", db.err)
 	}
-	gotDB = &database{last: db.last, tbd: db.tbd, tbh: db.tbh}
+	gotDB = &database{last: db.last, tfu: db.tfu, tfl: db.tfl}
 	wantDB.last = now
-
-	if !reflect.DeepEqual(gotDB.tbd, wantDB.tbd) {
-		t.Errorf("update 2, database by descriptor state mismatch:\ngot  %+v\nwant %+v", gotDB.tbd, wantDB.tbd)
+	if !reflect.DeepEqual(gotDB.tfu, wantDB.tfu) {
+		t.Errorf("update 2, threats for update mismatch:\ngot  %+v\nwant %+v", gotDB.tfu, wantDB.tfu)
 	}
-	if !Equal(gotDB.tbh, wantDB.tbh) {
-		t.Fatalf("update 2, database by hash state mismatch:\ngot  %+v\nwant %+v", gotDB.tbh, wantDB.tbh)
+	if !reflect.DeepEqual(gotDB.tfl, wantDB.tfl) {
+		t.Fatalf("update 2, threats for lookup mismatch:\ngot  %+v\nwant %+v", gotDB.tfl, wantDB.tfl)
 	}
 
 	// Update 3: full update and partial update with removals and additions.
@@ -487,48 +419,29 @@ func TestDatabaseUpdate(t *testing.T) {
 	if db.err != nil {
 		t.Fatalf("update 3, unexpected update error: %v", db.err)
 	}
-	gotDB = &database{last: db.last, tbd: db.tbd, tbh: db.tbh}
+	gotDB = &database{last: db.last, tfu: db.tfu, tfl: db.tfl}
 	wantDB = &database{
 		last: now,
-		tbd: threatsByDescriptor{
-			td013: {
-				Hashes: []hashPrefix{"0421f", "aaaa", "cccc"},
-				SHA256: gotDB.tbd[td013].SHA256,
-				State:  []byte{0x61, 0x32},
-			},
-			td113: {
-				Hashes: []hashPrefix{"aaaa", "bbbb", "cccc"},
-				SHA256: gotDB.tbd[td113].SHA256,
-				State:  []byte{0x62, 0x32},
-			},
-			td014: {
-				Hashes: []hashPrefix{"aaaa", "cccc", "eeee", "ffff"},
-				SHA256: gotDB.tbd[td014].SHA256,
-				State:  []byte{0x63, 0x32},
-			},
-			td114: {
-				Hashes: []hashPrefix{"0421E", "AAAA"},
-				SHA256: gotDB.tbd[td114].SHA256,
-				State:  []byte{0x64, 0x32},
-			},
+		tfu: threatsForUpdate{
+			td013: {SHA256: gotDB.tfu[td013].SHA256, State: []byte{0x61, 0x32}},
+			td113: {SHA256: gotDB.tfu[td113].SHA256, State: []byte{0x62, 0x32}},
+			td014: {SHA256: gotDB.tfu[td014].SHA256, State: []byte{0x63, 0x32}},
+			td114: {SHA256: gotDB.tfu[td114].SHA256, State: []byte{0x64, 0x32}},
 		},
-		tbh: threatsByHash{
-			"0421E": []ThreatDescriptor{td114},
-			"0421f": []ThreatDescriptor{td013},
-			"aaaa":  []ThreatDescriptor{td013, td113, td014},
-			"AAAA":  []ThreatDescriptor{td114},
-			"bbbb":  []ThreatDescriptor{td113},
-			"cccc":  []ThreatDescriptor{td013, td113, td014},
-			"eeee":  []ThreatDescriptor{td014},
-			"ffff":  []ThreatDescriptor{td014},
+		tfl: threatsForLookup{
+			td013: newHashSet([]hashPrefix{"0421f", "aaaa", "cccc"}),
+			td113: newHashSet([]hashPrefix{"aaaa", "bbbb", "cccc"}),
+			td014: newHashSet([]hashPrefix{"aaaa", "cccc", "eeee", "ffff"}),
+			td114: newHashSet([]hashPrefix{"0421E", "AAAA"}),
 		},
 	}
-	if !reflect.DeepEqual(gotDB.tbd, wantDB.tbd) {
-		t.Errorf("update 3, database by descriptor state mismatch:\ngot  %+v\nwant %+v", gotDB.tbd, wantDB.tbd)
+	if !reflect.DeepEqual(gotDB.tfu, wantDB.tfu) {
+		t.Errorf("update 3, threats for update mismatch:\ngot  %+v\nwant %+v", gotDB.tfu, wantDB.tfu)
 	}
-	if !Equal(gotDB.tbh, wantDB.tbh) {
-		t.Fatalf("update 3, database by hash state mismatch:\ngot  %+v\nwant %+v", gotDB.tbh, wantDB.tbh)
+	if !reflect.DeepEqual(gotDB.tfl, wantDB.tfl) {
+		t.Fatalf("update 3, threats for lookup mismatch:\ngot  %+v\nwant %+v", gotDB.tfl, wantDB.tfl)
 	}
+
 	// Update 4: invalid SHA256 checksum.
 	now = now.Add(time.Hour)
 	resp = pb.FetchThreatListUpdatesResponse{
@@ -541,7 +454,7 @@ func TestDatabaseUpdate(t *testing.T) {
 	if db.err == nil {
 		t.Fatalf("update 4, unexpected update success")
 	}
-	gotDB = &database{last: db.last, tbd: db.tbd, tbh: db.tbh}
+	gotDB = &database{last: db.last, tfu: db.tfu, tfl: db.tfl}
 	wantDB = &database{}
 	if !reflect.DeepEqual(gotDB, wantDB) {
 		t.Fatalf("update 4, database state mismatch:\ngot  %+v\nwant %+v", gotDB, wantDB)
@@ -559,7 +472,7 @@ func TestDatabaseUpdate(t *testing.T) {
 	if db.err == nil {
 		t.Fatalf("update 5, unexpected update success")
 	}
-	gotDB = &database{last: db.last, tbd: db.tbd, tbh: db.tbh}
+	gotDB = &database{last: db.last, tfu: db.tfu, tfl: db.tfl}
 	wantDB = &database{}
 	if !reflect.DeepEqual(gotDB, wantDB) {
 		t.Fatalf("update 5, database state mismatch:\ngot  %+v\nwant %+v", gotDB, wantDB)
@@ -578,46 +491,68 @@ func TestDatabaseLookup(t *testing.T) {
 		td678 = ThreatDescriptor{6, 7, 8}
 	)
 
-	db := &database{tbh: threatsByHash{
-		"1e25395a9b1b8": []ThreatDescriptor{td123, td234, td567, td678},
-		"26e307":        []ThreatDescriptor{td567, td001, td000},
-		"3f93":          []ThreatDescriptor{td123, td012, td001},
-		"524d":          []ThreatDescriptor{td000, td678, td456, td678, td567},
-		"59b8":          []ThreatDescriptor{td456},
-		"5c6655d2":      []ThreatDescriptor{td123},
-		"5c6655d3":      []ThreatDescriptor{td012, td456},
-		"5c6655d4":      []ThreatDescriptor{td001, td012, td000},
-		"5c6655d5":      []ThreatDescriptor{td123, td567},
-		"7294":          []ThreatDescriptor{td001, td678, td567, td012, td123},
-		"cad78c1c":      []ThreatDescriptor{td456, td456, td123, td567},
-		"cad78c628":     []ThreatDescriptor{td678, td234},
-		"cad78c68":      []ThreatDescriptor{td234},
+	threatsEqual := func(a, b []ThreatDescriptor) bool {
+		ma := make(map[ThreatDescriptor]struct{})
+		mb := make(map[ThreatDescriptor]struct{})
+		for _, td := range a {
+			ma[td] = struct{}{}
+		}
+		for _, td := range b {
+			mb[td] = struct{}{}
+		}
+		return reflect.DeepEqual(ma, mb)
+	}
+
+	db := &database{tfl: threatsForLookup{
+		td000: newHashSet([]hashPrefix{
+			"26e307", "524d", "5c6655d4"}),
+		td001: newHashSet([]hashPrefix{
+			"26e307", "3f93", "5c6655d4", "7294"}),
+		td012: newHashSet([]hashPrefix{
+			"3f93", "5c6655d3", "5c6655d4", "7294"}),
+		td123: newHashSet([]hashPrefix{
+			"1e25395a9b1b8", "3f93", "5c6655d2", "5c6655d5", "7294", "cad78c1c"}),
+		td234: newHashSet([]hashPrefix{
+			"1e25395a9b1b8", "cad78c628", "cad78c68"}),
+		td456: newHashSet([]hashPrefix{
+			"524d", "59b8", "5c6655d3", "cad78c1c"}),
+		td567: newHashSet([]hashPrefix{
+			"1e25395a9b1b8", "26e307", "524d", "5c6655d5", "7294", "cad78c1c"}),
+		td678: newHashSet([]hashPrefix{
+			"1e25395a9b1b8", "524d", "524d", "7294", "cad78c628"}),
 	}}
 
 	vectors := []struct {
-		input  hashPrefix // Input full hash
-		output hashPrefix // Output partial hash
+		input   hashPrefix // Input full hash
+		output  hashPrefix // Output partial hash
+		threats []ThreatDescriptor
 	}{{
 		input:  "3db40718dad209613a1fd9dced74dc0e",
 		output: "", // Not found
 	}, {
-		input:  "59b8332112b29950f594cf957f4d0e63",
-		output: "59b8",
+		input:   "59b8332112b29950f594cf957f4d0e63",
+		output:  "59b8",
+		threats: []ThreatDescriptor{td456},
 	}, {
-		input:  "524dfa307ba397754a35dcce0ee5f54a",
-		output: "524d",
+		input:   "524dfa307ba397754a35dcce0ee5f54a",
+		output:  "524d",
+		threats: []ThreatDescriptor{td000, td678, td456, td678, td567},
 	}, {
-		input:  "524dea307ba397754a35dcce0ee5f54a",
-		output: "524d",
+		input:   "524dea307ba397754a35dcce0ee5f54a",
+		output:  "524d",
+		threats: []ThreatDescriptor{td000, td678, td456, td678, td567},
 	}, {
-		input:  "5c6655d2096dd9ffb3c9e2bd5f86798f",
-		output: "5c6655d2",
+		input:   "5c6655d2096dd9ffb3c9e2bd5f86798f",
+		output:  "5c6655d2",
+		threats: []ThreatDescriptor{td123},
 	}, {
-		input:  "5c6655d33db40718dad209613a1fd9dc",
-		output: "5c6655d3",
+		input:   "5c6655d33db40718dad209613a1fd9dc",
+		output:  "5c6655d3",
+		threats: []ThreatDescriptor{td012, td456},
 	}, {
-		input:  "1e25395a9b1b87db129a7d85ee7cc0fd",
-		output: "1e25395a9b1b8",
+		input:   "1e25395a9b1b87db129a7d85ee7cc0fd",
+		output:  "1e25395a9b1b8",
+		threats: []ThreatDescriptor{td123, td234, td567, td678},
 	}}
 
 	for i, v := range vectors {
@@ -625,8 +560,8 @@ func TestDatabaseLookup(t *testing.T) {
 		if ph != v.output {
 			t.Errorf("test %d, partial hash mismatch: got %s, want %s", i, ph, v.output)
 		}
-		if !reflect.DeepEqual(m, db.tbh[ph]) {
-			t.Errorf("test %d, results mismatch: got %v, want %v", i, m, db.tbh[ph])
+		if !threatsEqual(m, v.threats) {
+			t.Errorf("test %d, results mismatch: got %v, want %v", i, m, v.threats)
 		}
 	}
 }
@@ -636,22 +571,22 @@ func TestDatabasePersistence(t *testing.T) {
 	defer os.Remove(path)
 
 	vectors := []struct {
-		last time.Time           // Input last update time
-		tbd  threatsByDescriptor // Input threatsByDescriptor
+		last time.Time        // Input last update time
+		tfu  threatsForUpdate // Input threatsByDescriptor
 	}{{
 		last: time.Time{},
 	}, {
 		last: time.Now(),
 	}, {
 		last: time.Unix(123456, 789),
-		tbd: threatsByDescriptor{
+		tfu: threatsForUpdate{
 			{0, 1, 2}: partialHashes{
 				SHA256: mustDecodeHex(t, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
 			},
 		},
 	}, {
 		last: time.Unix(987654321, 0),
-		tbd: threatsByDescriptor{
+		tfu: threatsForUpdate{
 			{3, 4, 5}: partialHashes{
 				Hashes: []hashPrefix{"aaaa", "bbbb", "cccc", "dddd"},
 				State:  []byte("meow meow meow!!!"),
@@ -666,7 +601,7 @@ func TestDatabasePersistence(t *testing.T) {
 	}}
 
 	for i, v := range vectors {
-		db1 := &database{config: &Config{DBPath: path}, last: v.last, tbd: v.tbd}
+		db1 := &database{config: &Config{DBPath: path}, last: v.last, tfu: v.tfu}
 		if err := db1.save(); err != nil {
 			t.Errorf("test %d, unexpected save error: %v", i, err)
 			continue
@@ -708,7 +643,7 @@ func TestDatabaseLoadErrors(t *testing.T) {
 
 	db1 := &database{
 		config: &Config{DBPath: path},
-		tbd: threatsByDescriptor{
+		tfu: threatsForUpdate{
 			{3, 4, 5}: partialHashes{
 				Hashes: []hashPrefix{"aaaa", "bbbb", "cccc", "dddd"},
 				State:  []byte("meow meow meow!!!"),
@@ -733,29 +668,5 @@ func TestDatabaseLoadErrors(t *testing.T) {
 	db3 := &database{config: &Config{DBPath: path}}
 	if err := db3.load(); err != io.ErrUnexpectedEOF {
 		t.Errorf("mismatching error: got %v, want %v", err, io.ErrUnexpectedEOF)
-	}
-}
-
-func TestDatabaseComputeSHA256(t *testing.T) {
-	vectors := []struct {
-		hashes []hashPrefix
-		sha256 string
-	}{{
-		hashes: nil,
-		sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-	}, {
-		hashes: []hashPrefix{"xxxx", "yyyy", "zzzz"},
-		sha256: "20ffb2c3e9532153b96b956845381adc06095f8342fa2db1aafba6b0e9594d68",
-	}, {
-		hashes: []hashPrefix{"aaaa", "bbbb", "cccc", "dddd"},
-		sha256: "147eb9dcde0e090429c01dbf634fd9b69a7f141f005c387a9c00498908499dde",
-	}}
-
-	for i, v := range vectors {
-		phs := partialHashes{Hashes: v.hashes}
-		sha256 := hex.EncodeToString(phs.computeSHA256())
-		if sha256 != v.sha256 {
-			t.Errorf("test %d, mismatching hash:\ngot  %s\nwant %s", i, sha256, v.sha256)
-		}
 	}
 }

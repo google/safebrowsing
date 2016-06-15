@@ -35,17 +35,6 @@ const (
 // be partial, where len(Hash) >= minHashPrefixLength.
 type hashPrefix string
 
-type hashPrefixes []hashPrefix
-
-func (p hashPrefixes) Len() int           { return len(p) }
-func (p hashPrefixes) Less(i, j int) bool { return p[i] < p[j] }
-func (p hashPrefixes) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
-
-// sortHashes sorts a list of hashes.
-func sortHashes(hashes []hashPrefix) {
-	sort.Sort(hashPrefixes(hashes))
-}
-
 // hashFromPattern returns a full hash for the given URL pattern.
 func hashFromPattern(pattern string) hashPrefix {
 	hash := sha256.New()
@@ -66,6 +55,102 @@ func (h hashPrefix) IsFull() bool {
 // IsValid reports whether the hash is a valid partial or full hash.
 func (h hashPrefix) IsValid() bool {
 	return len(h) >= minHashPrefixLength && len(h) <= maxHashPrefixLength
+}
+
+type hashPrefixes []hashPrefix
+
+func (p hashPrefixes) Len() int           { return len(p) }
+func (p hashPrefixes) Less(i, j int) bool { return p[i] < p[j] }
+func (p hashPrefixes) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+func (p hashPrefixes) Sort()              { sort.Sort(p) }
+
+// Validate checks that the list of hash prefixes is valid. It checks the
+// following parameters:
+//	* That each hash prefix is valid; that is, it has a length within
+//	minHashPrefixLength and maxHashPrefixLength.
+//	* That the list of prefixes is sorted.
+//	* That none of the hashes are prefixes of each other.
+func (p hashPrefixes) Validate() error {
+	var hp hashPrefix // Previous hash
+	for _, h := range p {
+		switch {
+		case !h.IsValid():
+			return errors.New("safebrowsing: invalid hash")
+		case hp >= h:
+			return errors.New("safebrowsing: unsorted hash list")
+		case h.HasPrefix(hp) && hp != "":
+			return errors.New("safebrowsing: non-unique hash prefix")
+		}
+		hp = h
+	}
+	return nil
+}
+
+func (p hashPrefixes) SHA256() []byte {
+	hash := sha256.New()
+	for _, b := range p {
+		hash.Write([]byte(b))
+	}
+	return hash.Sum(nil)
+}
+
+// hashSet is a set of hash prefixes optimized for the fact that most hashes
+// are only 4 bytes in length.
+type hashSet struct {
+	h4 map[[minHashPrefixLength]byte]uint8 // Value is maximum length prefix
+	hx map[hashPrefix]struct{}
+	n  int
+}
+
+func byte4(h hashPrefix) (b [4]byte) {
+	b[0], b[1], b[2], b[3] = h[0], h[1], h[2], h[3]
+	return b
+}
+
+func (hs *hashSet) Len() int { return hs.n }
+
+func (hs *hashSet) Import(phs hashPrefixes) {
+	hs.h4 = make(map[[minHashPrefixLength]byte]uint8, len(phs))
+	hs.hx = make(map[hashPrefix]struct{})
+	hs.n = len(phs)
+	for _, h := range phs {
+		n := hs.h4[byte4(h)]
+		if len(h) > int(n) {
+			hs.h4[byte4(h)] = uint8(len(h))
+		}
+		if len(h) > 4 {
+			hs.hx[h] = struct{}{}
+		}
+	}
+}
+
+func (hs *hashSet) Export() hashPrefixes {
+	phs := make(hashPrefixes, 0, hs.n)
+	for h, n := range hs.h4 {
+		if n == minHashPrefixLength {
+			phs = append(phs, hashPrefix(h[:]))
+		}
+	}
+	for h := range hs.hx {
+		phs = append(phs, h)
+	}
+	return phs
+}
+
+func (hs *hashSet) Lookup(h hashPrefix) int {
+	n := int(hs.h4[byte4(h)])
+	if n <= minHashPrefixLength {
+		return n
+	}
+	if n > len(h) {
+		n = len(h)
+	}
+	for i := minHashPrefixLength; i <= n; i++ {
+		if _, ok := hs.hx[h[:i]]; ok {
+			return i
+		}
+	}
+	return 0
 }
 
 // decodeHashes takes a ThreatEntrySet and returns a list of hashes that should

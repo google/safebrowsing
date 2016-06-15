@@ -17,7 +17,6 @@ package safebrowsing
 import (
 	"bytes"
 	"compress/gzip"
-	"crypto/sha256"
 	"encoding/gob"
 	"errors"
 	"log"
@@ -35,29 +34,29 @@ import (
 //
 // The process for updating the database is as follows:
 //	* At startup, if a database file is provided, then load it. If loaded
-//	properly (not corrupted and not stale), then set tbd as the contents.
+//	properly (not corrupted and not stale), then set tfu as the contents.
 //	Otherwise, pull a new threat list from the Safe Browsing API.
 //	* Periodically, synchronize the database with the Safe Browsing API.
 //	This uses the State fields to update only parts of the threat list that have
 //	changed since the last sync.
-//	* Anytime tbd is updated, generate a new tbh.
+//	* Anytime tfu is updated, generate a new tfl.
 //
-// The processing for querying the database is as follows:
-//	* Check if the requested full hash matches any partial hash in tbh.
+// The process for querying the database is as follows:
+//	* Check if the requested full hash matches any partial hash in tfl.
 //	If a match is found, return a set of ThreatDescriptors with a partial match.
 type database struct {
 	config *Config
 
-	// threatsByDescriptor maps ThreatDescriptors to lists of partial hashes.
+	// threatsForUpdate maps ThreatDescriptors to lists of partial hashes.
 	// This data structure is in a format that is easily updated by the API.
 	// It is also the form that is written to disk.
-	tbd threatsByDescriptor
-	md  sync.Mutex // Protects tbd
+	tfu threatsForUpdate
+	mu  sync.Mutex // Protects tfu
 
-	// threatsByHash maps partial hashes to a set of ThreatDescriptors.
+	// threatsForLookup maps ThreatDescriptors to sets of partial hashes.
 	// This data structure is in a format that is easily queried.
-	tbh threatsByHash
-	mh  sync.RWMutex // Protects tbh, err, and last
+	tfl threatsForLookup
+	ml  sync.RWMutex // Protects tfl, err, and last
 
 	err  error     // Last error encountered
 	last time.Time // Last time the threat list were synced
@@ -65,20 +64,25 @@ type database struct {
 	log *log.Logger
 }
 
-type threatsByDescriptor map[ThreatDescriptor]partialHashes
+type threatsForUpdate map[ThreatDescriptor]partialHashes
 type partialHashes struct {
-	Hashes []hashPrefix
+	// Since the Hashes field is only needed when storing to disk and when
+	// updating, this field is cleared except for when it is in use.
+	// This is done to reduce memory usage as the contents of this can be
+	// regenerated from the tfl.
+	Hashes hashPrefixes
+
 	SHA256 []byte // The SHA256 over Hashes
 	State  []byte // Arbitrary binary blob to synchronize state with API
 }
 
-type threatsByHash map[hashPrefix][]ThreatDescriptor
+type threatsForLookup map[ThreatDescriptor]hashSet
 
 // databaseFormat is a light struct used only for gob encoding and decoding.
 // As written to disk, the format of the database file is basically the gzip
 // compressed version of the gob encoding of databaseFormat.
 type databaseFormat struct {
-	Table threatsByDescriptor
+	Table threatsForUpdate
 	Time  time.Time
 }
 
@@ -105,26 +109,26 @@ func (db *database) Init(config *Config, logger *log.Logger) bool {
 		db.setError(errStale)
 		return false
 	}
-	tbdNew := make(threatsByDescriptor)
+	tfuNew := make(threatsForUpdate)
 	for _, td := range db.config.ThreatLists {
-		if row, ok := db.tbd[td]; ok {
-			tbdNew[td] = row
+		if row, ok := db.tfu[td]; ok {
+			tfuNew[td] = row
 		} else {
 			db.log.Printf("database configuration mismatch")
 			db.setError(errStale)
 			return false
 		}
 	}
-	db.tbd = tbdNew
-	db.generateThreatsByHash(db.last)
+	db.tfu = tfuNew
+	db.generateThreatsForLookups(db.last)
 	return true
 }
 
 // Status reports the health of the database. If in a faulted state, the db
 // may repair itself on the next Update.
 func (db *database) Status() error {
-	db.mh.RLock()
-	defer db.mh.RUnlock()
+	db.ml.RLock()
+	defer db.ml.RUnlock()
 
 	if db.err != nil {
 		return db.err
@@ -139,15 +143,15 @@ func (db *database) Status() error {
 // global Safe Browsing API servers. If the update is successful, Status should
 // report a nil error.
 func (db *database) Update(api api) {
-	db.md.Lock()
-	defer db.md.Unlock()
+	db.mu.Lock()
+	defer db.mu.Unlock()
 
 	// Construct the request.
 	var numTypes int
 	var s []*pb.FetchThreatListUpdatesRequest_ListUpdateRequest
 	for _, td := range db.config.ThreatLists {
 		var state []byte
-		if row, ok := db.tbd[td]; ok {
+		if row, ok := db.tfu[td]; ok {
 			state = row.State
 		}
 
@@ -185,71 +189,92 @@ func (db *database) Update(api api) {
 	}
 
 	// Update the threat database with the response.
-	if db.tbd == nil {
-		db.tbd = make(threatsByDescriptor)
-	}
-	if err := db.tbd.update(resp); err != nil {
+	db.generateThreatsForUpdate()
+	if err := db.tfu.update(resp); err != nil {
 		db.log.Printf("update failure: %v", err)
 		db.setError(err)
 		return
 	}
 
 	// Regenerate the database and store it.
-	db.generateThreatsByHash(last)
 	if db.config.DBPath != "" {
 		// Semantically, we ignore save errors, but we do log them.
 		if err := db.save(); err != nil {
 			db.log.Printf("save failure: %v", err)
 		}
 	}
+	db.generateThreatsForLookups(last)
 }
 
 // Lookup looks up the full hash in the threat list and returns a partial
 // hash and a set of ThreatDescriptors that may match the full hash.
-//
-// The ThreatDescriptor set must not be mutated.
-func (db *database) Lookup(hash hashPrefix) (hashPrefix, []ThreatDescriptor) {
+func (db *database) Lookup(hash hashPrefix) (h hashPrefix, tds []ThreatDescriptor) {
 	if !hash.IsFull() {
 		panic("hash is not full")
 	}
 
-	db.mh.RLock()
-	defer db.mh.RUnlock()
-
-	for i := minHashPrefixLength; i <= maxHashPrefixLength; i++ {
-		if threats, ok := db.tbh[hash[:i]]; ok {
-			return hash[:i], threats
+	db.ml.RLock()
+	for td, hs := range db.tfl {
+		if n := hs.Lookup(hash); n > 0 {
+			h = hash[:n]
+			tds = append(tds, td)
 		}
 	}
-	return "", nil
+	db.ml.RUnlock()
+	return h, tds
 }
 
 // setError clears the database state and sets the last error to be err.
 //
-// This assumes that the db.md lock is already held.
+// This assumes that the db.mu lock is already held.
 func (db *database) setError(err error) {
-	db.tbd = nil
+	db.tfu = nil
 
-	db.mh.Lock()
-	db.tbh, db.err, db.last = nil, err, time.Time{}
-	db.mh.Unlock()
+	db.ml.Lock()
+	db.tfl, db.err, db.last = nil, err, time.Time{}
+	db.ml.Unlock()
 }
 
-// generateThreatsByHash regenerates the threatsByHash data structure from the
-// threatsByDescriptor data structure and stores the last timestamp.
+// generateThreatsForUpdate regenerates the threatsForUpdate hashes from
+// the threatsForLookup. We do this to avoid holding onto the hash lists for
+// a long time, needlessly occupying lots of memory.
 //
-// This assumes that the db.md lock is already held.
-func (db *database) generateThreatsByHash(last time.Time) {
-	tbh := make(threatsByHash)
-	for td, phs := range db.tbd {
-		for _, h := range phs.Hashes {
-			tbh[h] = append(tbh[h], td)
-		}
+// This assumes that the db.mu lock is already held.
+func (db *database) generateThreatsForUpdate() {
+	if db.tfu == nil {
+		db.tfu = make(threatsForUpdate)
 	}
-	db.mh.Lock()
+
+	db.ml.RLock()
+	for td, hs := range db.tfl {
+		phs := db.tfu[td]
+		phs.Hashes = hs.Export()
+		db.tfu[td] = phs
+	}
+	db.ml.RUnlock()
+}
+
+// generateThreatsForLookups regenerates the threatsForLookup data structure
+// from the threatsForUpdate data structure and stores the last timestamp.
+// Since the hashes are effectively stored as a set inside the threatsForLookup,
+// we clear out the hashes slice in threatsForUpdate so that it can be GCed.
+//
+// This assumes that the db.mu lock is already held.
+func (db *database) generateThreatsForLookups(last time.Time) {
+	tfl := make(threatsForLookup)
+	for td, phs := range db.tfu {
+		var hs hashSet
+		hs.Import(phs.Hashes)
+		tfl[td] = hs
+
+		phs.Hashes = nil // Clear hashes to keep memory usage low
+		db.tfu[td] = phs
+	}
+
+	db.ml.Lock()
 	wasBad := db.err != nil
-	db.tbh, db.err, db.last = tbh, nil, last
-	db.mh.Unlock()
+	db.tfl, db.err, db.last = tfl, nil, last
+	db.ml.Unlock()
 
 	if wasBad {
 		db.log.Printf("database is now healthy")
@@ -258,7 +283,7 @@ func (db *database) generateThreatsByHash(last time.Time) {
 
 // save saves the database threat list to a file.
 //
-// This assumes that the db.md lock is already held.
+// This assumes that the db.mu lock is already held.
 func (db *database) save() (err error) {
 	var file *os.File
 	file, err = os.Create(db.config.DBPath)
@@ -282,7 +307,7 @@ func (db *database) save() (err error) {
 	}()
 
 	encoder := gob.NewEncoder(gz)
-	if err = encoder.Encode(&databaseFormat{db.tbd, db.last}); err != nil {
+	if err = encoder.Encode(&databaseFormat{db.tfu, db.last}); err != nil {
 		return err
 	}
 	return nil
@@ -290,7 +315,7 @@ func (db *database) save() (err error) {
 
 // load loads the database state from a file.
 //
-// This assumes that the db.md lock is already held.
+// This assumes that the db.mu lock is already held.
 func (db *database) load() (err error) {
 	var file *os.File
 	file, err = os.Open(db.config.DBPath)
@@ -319,17 +344,17 @@ func (db *database) load() (err error) {
 		return err
 	}
 	for _, dv := range dbState.Table {
-		if !bytes.Equal(dv.SHA256, dv.computeSHA256()) {
+		if !bytes.Equal(dv.SHA256, dv.Hashes.SHA256()) {
 			return errors.New("safebrowsing: threat list SHA256 mismatch")
 		}
 	}
-	db.tbd = dbState.Table
+	db.tfu = dbState.Table
 	db.last = dbState.Time
 	return nil
 }
 
 // update updates the threat list according to the API response.
-func (tbd threatsByDescriptor) update(resp *pb.FetchThreatListUpdatesResponse) error {
+func (tfu threatsForUpdate) update(resp *pb.FetchThreatListUpdatesResponse) error {
 	// For each update response do the removes and adds
 	for _, m := range resp.GetListUpdateResponses() {
 		td := ThreatDescriptor{
@@ -338,7 +363,7 @@ func (tbd threatsByDescriptor) update(resp *pb.FetchThreatListUpdatesResponse) e
 			ThreatEntryType: ThreatEntryType(m.ThreatEntryType),
 		}
 
-		phs, ok := tbd[td]
+		phs, ok := tfu[td]
 		switch m.ResponseType {
 		case pb.FetchThreatListUpdatesResponse_ListUpdateResponse_PARTIAL_UPDATE:
 			if !ok {
@@ -352,6 +377,9 @@ func (tbd threatsByDescriptor) update(resp *pb.FetchThreatListUpdatesResponse) e
 		default:
 			return errors.New("safebrowsing: unknown response type")
 		}
+
+		// Hashes must be sorted for removal logic to work properly.
+		phs.Hashes.Sort()
 
 		for _, removal := range m.Removals {
 			idxs, err := decodeIndices(removal)
@@ -386,26 +414,19 @@ func (tbd threatsByDescriptor) update(resp *pb.FetchThreatListUpdatesResponse) e
 			phs.Hashes = append(phs.Hashes, hashes...)
 		}
 
-		// We ensure that the hashes are sorted for the next update cycle.
-		// The removal logic uses indices according to the sorted hashes.
-		sortHashes(phs.Hashes)
+		// Hashes must be sorted for SHA256 checksum to be correct.
+		phs.Hashes.Sort()
+		if err := phs.Hashes.Validate(); err != nil {
+			return err
+		}
 
 		phs.SHA256 = m.GetChecksum().Sha256
-		if !bytes.Equal(phs.SHA256, phs.computeSHA256()) {
+		if !bytes.Equal(phs.SHA256, phs.Hashes.SHA256()) {
 			return errors.New("safebrowsing: threat list SHA256 mismatch")
 		}
 
 		phs.State = m.NewClientState
-		tbd[td] = phs
+		tfu[td] = phs
 	}
 	return nil
-}
-
-// computeSHA256 computes the SHA256 for the hash prefixes.
-func (phs partialHashes) computeSHA256() []byte {
-	hash := sha256.New()
-	for _, b := range phs.Hashes {
-		hash.Write([]byte(b))
-	}
-	return hash.Sum(nil)
 }

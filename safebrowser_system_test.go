@@ -181,13 +181,12 @@ func TestSafeBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(sb.db.tbd) == 0 {
-		t.Errorf("threatsByDescriptor is empty")
-	}
-	if len(sb.db.tbh) == 0 {
-		t.Errorf("threatsByHash is empty")
+	for _, hs := range sb.db.tfl {
+		if hs.Len() == 0 {
+			t.Errorf("Database length: got %d,, want >0", hs.Len())
+		}
 	}
 	if len(sb.c.pttls) != 1 {
-		t.Errorf("Cache length: want = 1, got = %d", len(sb.c.pttls))
+		t.Errorf("Cache length: got %d, want 1", len(sb.c.pttls))
 	}
 }
