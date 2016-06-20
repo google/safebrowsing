@@ -15,7 +15,12 @@
 package safebrowsing
 
 import (
+	"bytes"
+	"encoding/gob"
+	"encoding/hex"
+	"io/ioutil"
 	"reflect"
+	"runtime"
 	"testing"
 
 	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
@@ -23,12 +28,177 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
+var testHashes = func() [][]hashPrefix {
+	var hs [][]hashPrefix
+	b, err := ioutil.ReadFile("testdata/hashes.gob")
+	if err != nil {
+		panic(err)
+	}
+	r := gob.NewDecoder(bytes.NewReader(b))
+	if err := r.Decode(&hs); err != nil {
+		panic(err)
+	}
+	return hs
+}()
+
+func TestHashValidate(t *testing.T) {
+	vectors := []struct {
+		hashes hashPrefixes
+		valid  bool
+	}{
+		{hashPrefixes{"bbb"}, false},
+		{hashPrefixes{"bbbb"}, true},
+		{hashPrefixes{"bbbb", "aaaa"}, false},
+		{hashPrefixes{"aaaa", "bbbb"}, true},
+		{hashPrefixes{"aaaa", "bbbbb"}, true},
+		{hashPrefixes{"aaaa", "bbbbb", "bbbbb"}, false},
+		{hashPrefixes{"aaaa", "bbbbb", "bbbbc"}, true},
+		{hashPrefixes{"aaaa", "bbbbb", "bbbbbb"}, false},
+		{hashPrefixes{"aaaa", "bbbbb", "bbbbbc"}, false},
+		{hashPrefixes{"aaaa", "bbbbbd", "bbbbbc"}, false},
+		{hashPrefixes{"aaaa", "bbbbbc", "bbbbbd"}, true},
+	}
+
+	for i, v := range vectors {
+		valid := v.hashes.Validate() == nil
+		if valid != v.valid {
+			t.Errorf("test %d, Validate() = %v, want %v", i, valid, v.valid)
+		}
+	}
+}
+
+func TestHashComputeSHA256(t *testing.T) {
+	vectors := []struct {
+		hashes hashPrefixes
+		sha256 string
+	}{{
+		hashes: nil,
+		sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+	}, {
+		hashes: hashPrefixes{"xxxx", "yyyy", "zzzz"},
+		sha256: "20ffb2c3e9532153b96b956845381adc06095f8342fa2db1aafba6b0e9594d68",
+	}, {
+		hashes: hashPrefixes{"aaaa", "bbbb", "cccc", "dddd"},
+		sha256: "147eb9dcde0e090429c01dbf634fd9b69a7f141f005c387a9c00498908499dde",
+	}}
+
+	for i, v := range vectors {
+		sha256 := hex.EncodeToString(v.hashes.SHA256())
+		if sha256 != v.sha256 {
+			t.Errorf("test %d, mismatching hash:\ngot  %s\nwant %s", i, sha256, v.sha256)
+		}
+	}
+}
+
 func TestHashFromPattern(t *testing.T) {
 	got := hashFromPattern("foo.com/")
 	want := hashPrefix(mustDecodeHex(t, "af30010e4c011fc77e1ab03ef898ab2f8dec17c0bd178a875ad0cd9b7a6e5973"))
 	if got != want {
 		t.Errorf("FromPattern() = %x, want %x", got, want)
 	}
+}
+
+func TestHashSet(t *testing.T) {
+	type hashQuery struct {
+		hash hashPrefix
+		len  int
+	}
+	type testVector struct {
+		hashes  hashPrefixes
+		queries []hashQuery
+		fail    bool
+	}
+
+	vectors := []testVector{{
+		hashes:  hashPrefixes{"aaaa", "bbbbb", "bbbbc"},
+		queries: []hashQuery{{"aaaa", 4}, {"bbbb", 0}, {"bbbbbbbbb", 5}, {"bbbbcbbbb", 5}},
+	}, {
+		hashes:  hashPrefixes{"aaaa", "bbbb"},
+		queries: []hashQuery{{"aaaa", 4}, {"aaaaaaa", 4}, {"bbbb", 4}, {"cccc", 0}},
+	}, {
+		hashes:  hashPrefixes{"abcdefgh", "abcdefgi", "abcdefgj"},
+		queries: []hashQuery{{"abcd", 0}, {"abcde", 0}, {"abcdef", 0}, {"abcdefg", 0}, {"abcdefgh", 8}, {"abcdefgz", 0}},
+	}}
+
+	// Add hashes based on actual test data.
+	if !testing.Short() {
+		for _, hs := range testHashes {
+			var v testVector
+			v.hashes = hs
+			for _, h := range hs {
+				v.queries = append(v.queries, hashQuery{h + "footer", len(h)})
+			}
+			for _, h := range hs {
+				v.queries = append(v.queries, hashQuery{"header" + h, 0})
+			}
+			vectors = append(vectors, v)
+		}
+	}
+
+	var hs hashSet
+	for i, v := range vectors {
+		var fail bool
+		func() {
+			defer func() { fail = recover() != nil }()
+			hs.Import(v.hashes)
+
+			for j, q := range v.queries {
+				n := hs.Lookup(q.hash)
+				if n != q.len {
+					t.Errorf("test %d.%d, Lookup(%q) = %d, want %d", i, j, q.hash, n, q.len)
+				}
+			}
+
+			hashes := hs.Export()
+			hashPrefixes(hashes).Sort()
+			if !reflect.DeepEqual(hashes, v.hashes) {
+				t.Errorf("test %d, output hashes mismatch\ngot  %q\nwant %q", i, hashes, v.hashes)
+			}
+		}()
+
+		if fail != v.fail {
+			if fail {
+				t.Errorf("test %d, unexpected test failure", i)
+			} else {
+				t.Errorf("test %d, unexpected test success", i)
+			}
+		}
+	}
+}
+
+func BenchmarkHashSet(b *testing.B) {
+	var queries []hashPrefix
+	for _, h := range testHashes[1] {
+		queries = append(queries, "header"+h)
+		queries = append(queries, h+"footer")
+	}
+
+	var hs hashSet
+	hs.Import(testHashes[1])
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, h := range queries {
+			hs.Lookup(h)
+		}
+	}
+}
+
+func BenchmarkHashSetMemory(b *testing.B) {
+	var ms1, ms2 runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&ms1)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	var hs hashSet
+	for i := 0; i < b.N; i++ {
+		hs = hashSet{}
+		hs.Import(testHashes[1])
+	}
+
+	runtime.GC()
+	runtime.ReadMemStats(&ms2)
+	b.Logf("mem_alloc: %dB, hashes: %dx", ms2.Alloc-ms1.Alloc, len(testHashes[1]))
 }
 
 func TestDecodeHashes(t *testing.T) {
@@ -71,7 +241,7 @@ func TestDecodeHashes(t *testing.T) {
 
 loop:
 	for i, v := range vectors {
-		var got []hashPrefix
+		var got hashPrefixes
 		for _, in := range v.input {
 			set := &pb.ThreatEntrySet{}
 			if err := proto.Unmarshal(mustDecodeHex(t, in), set); err != nil {
@@ -87,13 +257,13 @@ loop:
 			got = append(got, hashes...)
 		}
 
-		sortHashes(got)
-		want := make([]hashPrefix, 0, len(v.output))
+		got.Sort()
+		want := make(hashPrefixes, 0, len(v.output))
 		for _, h := range v.output {
 			want = append(want, hashPrefix(mustDecodeHex(t, h)))
 		}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("failure in test case %d. DecodeHashes() = %v; want %v", i, got, want)
+			t.Errorf("test %d, DecodeHashes() = %x; want %x", i, got, want)
 		}
 	}
 }
