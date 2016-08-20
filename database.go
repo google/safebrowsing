@@ -27,6 +27,11 @@ import (
 	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
 )
 
+// jitter is the maximum amount of time that we expect an API list update to
+// actually take. We add this time to the update period time to give some
+// leeway before declaring the database as stale.
+const jitter = 30 * time.Second
+
 // database tracks the state of the threat lists published by the Safe Browsing
 // API. Since the global blacklist is constantly changing, the contents of the
 // database needs to be periodically synced with the Safe Browsing servers in
@@ -104,7 +109,7 @@ func (db *database) Init(config *Config, logger *log.Logger) bool {
 
 	// Validate that the database threat list stored on disk is at least a
 	// superset of the specified configuration.
-	if db.config.now().Sub(db.last) > db.config.UpdatePeriod {
+	if db.config.now().Sub(db.last) > (db.config.UpdatePeriod + jitter) {
 		db.log.Printf("database loaded is stale")
 		db.setError(errStale)
 		return false
@@ -133,7 +138,7 @@ func (db *database) Status() error {
 	if db.err != nil {
 		return db.err
 	}
-	if db.config.now().Sub(db.last) > db.config.UpdatePeriod {
+	if db.config.now().Sub(db.last) > (db.config.UpdatePeriod + jitter) {
 		return errStale
 	}
 	return nil
