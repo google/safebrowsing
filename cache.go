@@ -15,7 +15,6 @@
 package safebrowsing
 
 import (
-	"log"
 	"sync"
 	"time"
 
@@ -58,8 +57,6 @@ type cache struct {
 	nttls map[hashPrefix]time.Time
 
 	now func() time.Time
-
-	log *log.Logger
 }
 
 // Update updates the cache according to the request that was made to the server
@@ -122,14 +119,12 @@ func (c *cache) Lookup(hash hashPrefix) (map[ThreatDescriptor]bool, cacheResult)
 			threats[td] = true
 		} else {
 			// The PTTL has expired, we should ask the server what's going on.
-			c.log.Printf("hash %x: expired PTTL", hash)
 			return nil, cacheMiss
 		}
 	}
 	if len(threats) > 0 {
 		// So long as there are valid threats, we report them. The positive TTL
 		// takes precedence over the negative TTL at the partial hash level.
-		c.log.Printf("hash %x: unsafe for %d threat(s)", hash, len(threats))
 		return threats, positiveCacheHit
 	}
 
@@ -160,7 +155,6 @@ func (c *cache) Purge() {
 				for i := minHashPrefixLength; i <= maxHashPrefixLength; i++ {
 					if nttl, ok := c.nttls[fullHash[:i]]; ok {
 						if nttl.After(pttl) {
-							c.log.Printf("hash %x: not purging since NTTL > PTTL", fullHash)
 							del = false
 							break
 						}
