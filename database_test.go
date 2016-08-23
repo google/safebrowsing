@@ -225,7 +225,8 @@ func TestDatabaseInit(t *testing.T) {
 
 		db1 := v.oldDB
 		db1.config = v.config
-		if err := db1.save(); err != nil {
+		dbf := databaseFormat{db1.tfu, db1.last}
+		if err := saveDatabase(db1.config.DBPath, dbf); err != nil {
 			t.Errorf("test %d, unexpected save error: %v", i, err)
 		}
 
@@ -601,20 +602,20 @@ func TestDatabasePersistence(t *testing.T) {
 	}}
 
 	for i, v := range vectors {
-		db1 := &database{config: &Config{DBPath: path}, last: v.last, tfu: v.tfu}
-		if err := db1.save(); err != nil {
+		dbf1 := databaseFormat{v.tfu, v.last}
+		if err := saveDatabase(path, dbf1); err != nil {
 			t.Errorf("test %d, unexpected save error: %v", i, err)
 			continue
 		}
 
-		db2 := &database{config: &Config{DBPath: path}}
-		if err := db2.load(); err != nil {
+		dbf2, err := loadDatabase(path)
+		if err != nil {
 			t.Errorf("test %d, unexpected load error: %v", i, err)
 			continue
 		}
 
-		if !reflect.DeepEqual(&db1, &db2) {
-			t.Errorf("test %d, mismatching database contents:\ngot  %v\nwant %v", i, db2, db1)
+		if !reflect.DeepEqual(dbf1, dbf2) {
+			t.Errorf("test %d, mismatching database contents:\ngot  %v\nwant %v", i, dbf2, dbf1)
 		}
 	}
 }
@@ -628,11 +629,7 @@ func TestDatabaseSaveErrors(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	db := &database{
-		config: &Config{DBPath: path},
-		log:    log.New(ioutil.Discard, "", 0),
-	}
-	if err := db.save(); err == nil {
+	if err := saveDatabase(path, databaseFormat{}); err == nil {
 		t.Errorf("unexpected save success")
 	}
 }
@@ -641,23 +638,20 @@ func TestDatabaseLoadErrors(t *testing.T) {
 	path := mustGetTempFile(t)
 	defer os.Remove(path)
 
-	db1 := &database{
-		config: &Config{DBPath: path},
-		tfu: threatsForUpdate{
+	dbf1 := databaseFormat{
+		Table: threatsForUpdate{
 			{3, 4, 5}: partialHashes{
 				Hashes: []hashPrefix{"aaaa", "bbbb", "cccc", "dddd"},
 				State:  []byte("meow meow meow!!!"),
 				SHA256: nil, // Intentionally leave this out
 			},
 		},
-		log: log.New(ioutil.Discard, "", 0),
 	}
-	if err := db1.save(); err != nil {
+	if err := saveDatabase(path, dbf1); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	db2 := &database{config: &Config{DBPath: path}}
-	if err := db2.load(); err == nil {
+	if _, err := loadDatabase(path); err == nil {
 		t.Errorf("unexpected success")
 	}
 
@@ -665,8 +659,7 @@ func TestDatabaseLoadErrors(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	db3 := &database{config: &Config{DBPath: path}}
-	if err := db3.load(); err != io.ErrUnexpectedEOF {
+	if _, err := loadDatabase(path); err != io.ErrUnexpectedEOF {
 		t.Errorf("mismatching error: got %v, want %v", err, io.ErrUnexpectedEOF)
 	}
 }
