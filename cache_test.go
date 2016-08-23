@@ -15,8 +15,6 @@
 package safebrowsing
 
 import (
-	"io/ioutil"
-	"log"
 	"reflect"
 	"testing"
 	"time"
@@ -27,7 +25,6 @@ import (
 func TestCacheLookup(t *testing.T) {
 	now := time.Unix(1451436338, 951473000)
 	mockNow := func() time.Time { return now }
-	nilLogger := log.New(ioutil.Discard, "", 0)
 
 	type cacheLookup struct {
 		h   hashPrefix
@@ -54,7 +51,6 @@ func TestCacheLookup(t *testing.T) {
 				"BBBB": now.Add(-time.Minute),
 			},
 			now: mockNow,
-			log: nilLogger,
 		},
 		wantCache: &cache{
 			pttls: map[hashPrefix]map[ThreatDescriptor]time.Time{
@@ -66,7 +62,6 @@ func TestCacheLookup(t *testing.T) {
 				"AAAA": now.Add(DefaultUpdatePeriod),
 			},
 			now: mockNow,
-			log: nilLogger,
 		},
 		lookups: []cacheLookup{{
 			h:   "AAAABBBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -98,7 +93,6 @@ func TestCacheLookup(t *testing.T) {
 				"BBBB": now.Add(-time.Minute),
 			},
 			now: mockNow,
-			log: nilLogger,
 		},
 		wantCache: &cache{
 			pttls: map[hashPrefix]map[ThreatDescriptor]time.Time{
@@ -111,7 +105,6 @@ func TestCacheLookup(t *testing.T) {
 				"AAAA": now.Add(DefaultUpdatePeriod * 2),
 			},
 			now: mockNow,
-			log: nilLogger,
 		},
 		lookups: []cacheLookup{{
 			h:   "AAAABBBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -127,8 +120,8 @@ func TestCacheLookup(t *testing.T) {
 			r:   cacheMiss,
 		}},
 	}, {
-		gotCache:  &cache{now: mockNow, log: nilLogger},
-		wantCache: &cache{now: mockNow, log: nilLogger},
+		gotCache:  &cache{now: mockNow},
+		wantCache: &cache{now: mockNow},
 		lookups: []cacheLookup{{
 			h:   "AAAABBBBBBBBBBBBBBBBBBBBBBBBBBBB",
 			tds: nil,
