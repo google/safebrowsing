@@ -201,6 +201,19 @@ func normalizeEscape(s string) (string, error) {
 	return escape(u), nil
 }
 
+// parserest parase the content after the first symbol ':'.
+// If there is a port after ':',  ("", url) is returned. e.g. "www.abc.com:80/"
+// (url[:i], url[i+1:]) is returned in other stations.
+func parseRest(url string, i int) (scheme, path string) {
+	portReg := regexp.MustCompile(`^:(\d+)(/|$)`)
+	matched := portReg.MatchString(url[i:])
+	if matched {
+	    return "", url
+	}
+	    
+	return url[:i], url[i+1:]
+}
+
 // getScheme splits the url into (scheme, path) where scheme is the protocol.
 // If the scheme cannot be determined ("", url) is returned.
 func getScheme(url string) (scheme, path string) {
@@ -213,7 +226,7 @@ func getScheme(url string) (scheme, path string) {
 				return "", url
 			}
 		case c == ':':
-			return url[:i], url[i+1:]
+			return parseRest(url, i)
 		default:
 			// Invalid character, so there is no valid scheme.
 			return "", url
