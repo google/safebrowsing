@@ -336,3 +336,44 @@ func TestCanonicalURL(t *testing.T) {
 		}
 	}
 }
+
+func TestParseURL(t *testing.T) {
+	vectors := []struct {
+		url    string
+		scheme string
+		host   string
+		path   srting
+		fail   bool
+	}{
+		{"www.google.com:8080/foo.html", "http", "www.google.com", "/foo.html", false},
+		{"www.google.com:80/", "http", "www.google.com", "/", false},
+		{"www.google.com:80", "http", "www.google.com", "/", false},
+		{":8080/foo.html", "http", "", "/foo.html", false},
+		
+		// The string after the first ":" is not a port.
+		{"http://www.google.com:8080/foo.html", "http", "www.google.com", "/foo.html", false},
+		{"http:www.google.com:8080/foo.html", "", "", "", true},
+		{"www.google.com:xxyy/foo.html:80", "", "", "", true},
+	}
+
+	for i, v := range vectors {
+		parsedURL, err := parseURL(v.url)
+		if err != nil != v.fail {
+			if err != nil {
+				t.Errorf("test %d url %v, unexpected error: %v", i, v.url, err)
+			} else {
+				t.Errorf("test %d, unexpected success", i)
+			}
+			continue
+		}
+		if parsedURL.Scheme != v.scheme {
+			t.Errorf("test %d, scheme of parseURL(%q) = %q, want %q", i, v.url, parsedURL.Scheme, v.scheme)
+		}
+		if parsedURL.Host != v.host {
+			t.Errorf("test %d, host of parseURL(%q) = %q, want %q", i, v.url, parsedURL.Host, v.host)
+		}
+		if parsedURL.Path != v.path {
+			t.Errorf("test %d, path of parseURL(%q) = %q, want %q", i, v.url, parsedURL.Path, v.path)
+		}
+	}
+}
