@@ -48,7 +48,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"log"
 
 	"golang.org/x/net/idna"
 )
@@ -281,7 +280,6 @@ func parseURL(urlStr string) (parsedURL *url.URL, err error) {
 	// If missing, we assume that it is an "http".
 	// 3. We strip off the fragment and the escaped query as they are not
 	// required for building patterns for Safe Browsing.
-	log.Printf("sssssssssssssss")
 	parsedURL = new(url.URL)
 	// Remove the URL fragment.
 	// Also, we decode and encode the URL.
@@ -327,9 +325,6 @@ func parseURL(urlStr string) (parsedURL *url.URL, err error) {
 		p += "/"
 	}
 	parsedURL.Path = p
-	log.Printf("parsedURL.Scheme: %v", parsedURL.Scheme)
-	log.Printf("parsedURL.Host: %v", parsedURL.Host)
-	log.Printf("parsedURL.Path: %v", parsedURL.Path)
 	return parsedURL, nil
 }
 
