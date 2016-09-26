@@ -493,7 +493,7 @@ func (sb *SafeBrowser) LookupURLs(urls []string) (threats [][]URLThreat, err err
 			})
 		}
 	}
-	atomic.AddInt64(&sb.stats.QueriesByAPI, 1)
+	atomic.AddInt64(&sb.stats.QueriesByAPI, urlCount)
 	return threats, nil
 }
 
