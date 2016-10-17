@@ -152,22 +152,16 @@ func TestSafeBrowser(t *testing.T) {
 		ID:           "GoSafeBrowserSystemTest",
 		DBPath:       "/tmp/safebrowser.db",
 		UpdatePeriod: 10 * time.Second,
-		ThreatLists: []ThreatDescriptor{
-			{ThreatType_PotentiallyHarmfulApplication, PlatformType_Android, ThreatEntryType_URL},
-		},
+		ThreatLists:  DefaultThreatLists,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var c = pb.FetchThreatListUpdatesRequest_ListUpdateRequest{
-		ThreatType:      pb.ThreatType_POTENTIALLY_HARMFUL_APPLICATION,
-		PlatformType:    pb.PlatformType_ANDROID,
-		ThreatEntryType: pb.ThreatEntryType_URL,
-	}
 	urls := []string{
-		"http://testsafebrowsing.appspot.com/apiv4/" + c.PlatformType.String() + "/" +
-			c.ThreatType.String() + "/" + c.ThreatEntryType.String() + "/",
+		"http://testsafebrowsing.appspot.com/apiv4/" + pb.PlatformType_ANY_PLATFORM.String() + "/" + pb.ThreatType_SOCIAL_ENGINEERING.String() + "/" + pb.ThreatEntryType_URL.String() + "/",
+		"http://testsafebrowsing.appspot.com/apiv4/" + pb.PlatformType_ANY_PLATFORM.String() + "/" + pb.ThreatType_MALWARE.String() + "/" + pb.ThreatEntryType_URL.String() + "/",
+		"http://safebrowsing.appspot.com/apiv4/",
 	}
 	threats, e := sb.LookupURLs(urls)
 	if e != nil {
@@ -176,7 +170,12 @@ func TestSafeBrowser(t *testing.T) {
 	if len(threats[0]) == 0 {
 		t.Errorf("lookupURL failed")
 	}
-
+	if len(threats[1]) == 0 {
+		t.Errorf("lookupURL failed")
+	}
+	if len(threats[2]) != 0 {
+		t.Errorf("lookupURL failed")
+	}
 	if err := sb.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +185,7 @@ func TestSafeBrowser(t *testing.T) {
 			t.Errorf("Database length: got %d,, want >0", hs.Len())
 		}
 	}
-	if len(sb.c.pttls) != 1 {
+	if len(sb.c.pttls) != 2 {
 		t.Errorf("Cache length: got %d, want 1", len(sb.c.pttls))
 	}
 }
