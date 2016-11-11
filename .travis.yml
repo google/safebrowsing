@@ -2,7 +2,7 @@ language: go
 
 go:
   - 1.6
-  - tip
+  - 1.7
 
 script:
   - test -z "$(gofmt -s -l $(find . -name '*.go' -type f -print) | tee /dev/stderr)"
