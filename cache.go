@@ -80,7 +80,12 @@ func (c *cache) Update(req *pb.FindFullHashesRequest, resp *pb.FindFullHashesRes
 		if c.pttls[fullHash] == nil {
 			c.pttls[fullHash] = make(map[ThreatDescriptor]time.Time)
 		}
-		dur := time.Duration(tm.GetCacheDuration().Seconds) * time.Second
+		var dur time.Duration
+		if tmCacheDur := tm.GetCacheDuration(); tmCacheDur != nil {
+			dur = time.Duration(tm.GetCacheDuration().Seconds) * time.Second
+		} else {
+			dur = time.Second
+		}
 		td := ThreatDescriptor{
 			ThreatType:      ThreatType(tm.ThreatType),
 			PlatformType:    PlatformType(tm.PlatformType),
