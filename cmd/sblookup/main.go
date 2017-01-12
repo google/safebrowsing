@@ -41,7 +41,7 @@ import (
 var (
 	apiKeyFlag    = flag.String("apikey", "", "specify your Safe Browsing API key")
 	databaseFlag  = flag.String("db", "", "path to the Safe Browsing database. By default persistent storage is disabled (not recommended).")
-	serverUrlFlag = flag.String("server", safebrowsing.DefaultServerURL, "Safebrowsing API server address")
+	serverURLFlag = flag.String("server", safebrowsing.DefaultServerURL, "Safebrowsing API server address.")
 )
 
 const usage = `sblookup: command-line tool to lookup URLs with Safe Browsing.
