@@ -81,7 +81,7 @@ func main() {
 		APIKey:    *apiKeyFlag,
 		DBPath:    *databaseFlag,
 		Logger:    os.Stderr,
-		ServerURL: *serverUrlFlag,
+		ServerURL: *serverURLFlag,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Unable to initialize Safe Browsing client: ", err)
