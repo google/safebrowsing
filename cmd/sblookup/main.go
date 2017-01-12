@@ -39,8 +39,9 @@ import (
 )
 
 var (
-	apiKeyFlag   = flag.String("apikey", "", "specify your Safe Browsing API key")
-	databaseFlag = flag.String("db", "", "path to the Safe Browsing database. By default persistent storage is disabled (not recommended).")
+	apiKeyFlag    = flag.String("apikey", "", "specify your Safe Browsing API key")
+	databaseFlag  = flag.String("db", "", "path to the Safe Browsing database. By default persistent storage is disabled (not recommended).")
+	serverUrlFlag = flag.String("server", safebrowsing.DefaultServerURL, "Safebrowsing API server address")
 )
 
 const usage = `sblookup: command-line tool to lookup URLs with Safe Browsing.
@@ -77,9 +78,10 @@ func main() {
 		os.Exit(codeInvalid)
 	}
 	sb, err := safebrowsing.NewSafeBrowser(safebrowsing.Config{
-		APIKey: *apiKeyFlag,
-		DBPath: *databaseFlag,
-		Logger: os.Stderr,
+		APIKey:    *apiKeyFlag,
+		DBPath:    *databaseFlag,
+		Logger:    os.Stderr,
+		ServerURL: *serverUrlFlag,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Unable to initialize Safe Browsing client: ", err)
