@@ -424,7 +424,9 @@ func (tfu threatsForUpdate) update(resp *pb.FetchThreatListUpdatesResponse) erro
 			return err
 		}
 
-		phs.SHA256 = m.GetChecksum().Sha256
+		if cs := m.GetChecksum(); cs != nil {
+			phs.SHA256 = cs.Sha256
+		}
 		if !bytes.Equal(phs.SHA256, phs.Hashes.SHA256()) {
 			return errors.New("safebrowsing: threat list SHA256 mismatch")
 		}
