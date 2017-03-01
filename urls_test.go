@@ -128,6 +128,7 @@ func TestCanonicalHost(t *testing.T) {
 			strings.ToLower("[FEDC:BA98:7654:3210:FEDC:BA98:7654:3210]"), false},
 		{"http://[::192.9.5.5]/ipng", "[::192.9.5.5]", false},
 		{"http://0x12.0x43.0x44.0x01", "18.67.68.1", false},
+		{"http://192.168.0.1:80/index.html", "192.168.0.1", false},
 		{"/asdf", "", true},
 	}
 
