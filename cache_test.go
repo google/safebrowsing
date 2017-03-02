@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	dpb "github.com/golang/protobuf/ptypes/duration"
 	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
 )
 
@@ -196,21 +197,21 @@ func TestCacheUpdate(t *testing.T) {
 				PlatformType:    1,
 				ThreatEntryType: 2,
 				Threat:          &pb.ThreatEntry{Hash: []byte("aaaabbbbccccddddeeeeffffgggghhhh")},
-				CacheDuration:   &pb.Duration{Seconds: 1000, Nanos: 0},
+				CacheDuration:   &dpb.Duration{Seconds: 1000, Nanos: 0},
 			}, {
 				ThreatType:      1,
 				PlatformType:    2,
 				ThreatEntryType: 3,
 				Threat:          &pb.ThreatEntry{Hash: []byte("aaaaaaaaccccddddeeeeffffgggghhhh")},
-				CacheDuration:   &pb.Duration{Seconds: 1000, Nanos: 0},
+				CacheDuration:   &dpb.Duration{Seconds: 1000, Nanos: 0},
 			}, {
 				ThreatType:      2,
 				PlatformType:    3,
 				ThreatEntryType: 4,
 				Threat:          &pb.ThreatEntry{Hash: []byte("aaaaccccccccddddeeeeffffgggghhhh")},
-				CacheDuration:   &pb.Duration{Seconds: 1000, Nanos: 0},
+				CacheDuration:   &dpb.Duration{Seconds: 1000, Nanos: 0},
 			}},
-			NegativeCacheDuration: &pb.Duration{Seconds: 1000, Nanos: 0},
+			NegativeCacheDuration: &dpb.Duration{Seconds: 1000, Nanos: 0},
 		},
 		gotCache: &cache{
 			now: mockNow,
