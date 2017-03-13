@@ -335,7 +335,7 @@ func TestDatabaseUpdate(t *testing.T) {
 		},
 		MinimumWaitDuration: &google_protobuf.Duration{Seconds: 1200},
 	}
-	updated, delay := db.Update(mockAPI)
+	delay, updated := db.Update(mockAPI)
 	if db.err == nil || updated {
 		t.Fatalf("update 0, unexpected update success")
 	}
@@ -360,7 +360,7 @@ func TestDatabaseUpdate(t *testing.T) {
 		},
 		MinimumWaitDuration: &google_protobuf.Duration{Seconds: 2000},
 	}
-	updated, delay = db.Update(mockAPI)
+	delay, updated = db.Update(mockAPI)
 	if db.err != nil || !updated {
 		t.Fatalf("update 1, unexpected update error: %v", db.err)
 	}
@@ -408,7 +408,7 @@ func TestDatabaseUpdate(t *testing.T) {
 				"d1", "a3b93fac424834c2447e2dbe5db3ec8553519777523907ea310e207f556a7637"),
 		},
 	}
-	updated, delay = db.Update(mockAPI)
+	delay, updated = db.Update(mockAPI)
 	if db.err != nil || !updated {
 		t.Fatalf("update 2, unexpected update error: %v", db.err)
 	}
@@ -438,7 +438,7 @@ func TestDatabaseUpdate(t *testing.T) {
 				"d2", "b742965b7a759ba0254685bfc6edae3b1ba54d0168fb86f526d6c79c3d44c753"),
 		},
 	}
-	updated, delay = db.Update(mockAPI)
+	delay, updated = db.Update(mockAPI)
 	if db.err != nil || !updated {
 		t.Fatalf("update 3, unexpected update error: %v", db.err)
 	}
@@ -476,7 +476,7 @@ func TestDatabaseUpdate(t *testing.T) {
 				"a3", "bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0"),
 		},
 	}
-	updated, delay = db.Update(mockAPI)
+	delay, updated = db.Update(mockAPI)
 	if db.err == nil || updated {
 		t.Fatalf("update 4, unexpected update success")
 	}
@@ -497,7 +497,7 @@ func TestDatabaseUpdate(t *testing.T) {
 				"a4", "5d6506974928a003d2a0ccbd7a40b5341ad10578fd3f54527087c5ecbbd17a12"),
 		},
 	}
-	updated, delay = db.Update(mockAPI)
+	delay, updated = db.Update(mockAPI)
 	if db.err == nil || updated {
 		t.Fatalf("update 5, unexpected update success")
 	}
@@ -512,32 +512,36 @@ func TestDatabaseUpdate(t *testing.T) {
 
 	// Update 6: api is broken for some unknown reason. Checks the backoff
 	errResponse = errors.New("Something broke")
-	updated, delay = db.Update(mockAPI)
+	delay, updated = db.Update(mockAPI)
 	if db.err == nil || updated {
 		t.Fatalf("update 6, unexpected update success")
 	}
-	minDelay := baseRetryDelay.Seconds() * float64(1) * float64(db.updateAPIErrors)
-	maxDelay := baseRetryDelay.Seconds() * float64(2) * float64(db.updateAPIErrors)
+	minDelay := baseRetryDelay.Seconds() * float64(1) * float64(1)
+	maxDelay := baseRetryDelay.Seconds() * float64(2) * float64(1)
 	if delay.Seconds() < minDelay || delay.Seconds() > maxDelay {
 		t.Fatalf("update 6, Expected delay %v to be between %v and %v", delay.Seconds(), minDelay, maxDelay)
 	}
-	updated, delay = db.Update(mockAPI)
+
+	// Update 7: api is still broken, check backoff is larger
+	delay, updated = db.Update(mockAPI)
 	if db.err == nil || updated {
-		t.Fatalf("update 6, unexpected update success")
+		t.Fatalf("update 7, unexpected update success")
 	}
-	minDelay = baseRetryDelay.Seconds() * float64(1) * float64(db.updateAPIErrors)
-	maxDelay = baseRetryDelay.Seconds() * float64(2) * float64(db.updateAPIErrors)
+	minDelay = baseRetryDelay.Seconds() * float64(1) * float64(2)
+	maxDelay = baseRetryDelay.Seconds() * float64(2) * float64(2)
 	if delay.Seconds() < minDelay || delay.Seconds() > maxDelay {
-		t.Fatalf("update 6, Expected delay %v to be between %v and %v", delay.Seconds(), minDelay, maxDelay)
+		t.Fatalf("update 7, Expected delay %v to be between %v and %v", delay.Seconds(), minDelay, maxDelay)
 	}
-	updated, delay = db.Update(mockAPI)
+
+	// Update 8: api is still broken, check that backoff is larger than before
+	delay, updated = db.Update(mockAPI)
 	if db.err == nil || updated {
-		t.Fatalf("update 6, unexpected update success")
+		t.Fatalf("update 8, unexpected update success")
 	}
-	minDelay = baseRetryDelay.Seconds() * float64(1) * float64(db.updateAPIErrors)
-	maxDelay = baseRetryDelay.Seconds() * float64(2) * float64(db.updateAPIErrors)
+	minDelay = baseRetryDelay.Seconds() * float64(1) * float64(4)
+	maxDelay = baseRetryDelay.Seconds() * float64(2) * float64(4)
 	if delay.Seconds() < minDelay || delay.Seconds() > maxDelay {
-		t.Fatalf("update 6, Expected delay %v to be between %v and %v", delay.Seconds(), minDelay, maxDelay)
+		t.Fatalf("update 8, Expected delay %v to be between %v and %v", delay.Seconds(), minDelay, maxDelay)
 	}
 }
 

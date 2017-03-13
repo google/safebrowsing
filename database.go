@@ -172,7 +172,7 @@ func (db *database) SinceLastUpdate() time.Duration {
 // Update synchronizes the local threat lists with those maintained by the
 // global Safe Browsing API servers. If the update is successful, Status should
 // report a nil error.
-func (db *database) Update(api api) (bool, time.Duration) {
+func (db *database) Update(api api) (time.Duration, bool) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -216,7 +216,7 @@ func (db *database) Update(api api) (bool, time.Duration) {
 			delay = maxRetryDelay
 		}
 		db.updateAPIErrors++
-		return false, delay
+		return delay, false
 	}
 	db.updateAPIErrors = 0
 
@@ -233,7 +233,7 @@ func (db *database) Update(api api) (bool, time.Duration) {
 		db.setError(errors.New("safebrowsing: threat list count mismatch"))
 		db.log.Printf("invalid server response: got %d, want %d threat lists",
 			len(resp.ListUpdateResponses), numTypes)
-		return false, nextUpdateWait
+		return nextUpdateWait, false
 	}
 
 	// Update the threat database with the response.
@@ -242,7 +242,7 @@ func (db *database) Update(api api) (bool, time.Duration) {
 		db.setError(err)
 		db.log.Printf("update failure: %v", err)
 		db.tfu = nil
-		return false, nextUpdateWait
+		return nextUpdateWait, false
 	}
 	dbf := databaseFormat{make(threatsForUpdate), last}
 	for td, phs := range db.tfu {
@@ -259,7 +259,7 @@ func (db *database) Update(api api) (bool, time.Duration) {
 		}
 	}
 
-	return true, nextUpdateWait
+	return nextUpdateWait, true
 }
 
 // Lookup looks up the full hash in the threat list and returns a partial

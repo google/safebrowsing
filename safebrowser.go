@@ -320,7 +320,7 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 	delay := time.Duration(0)
 	// If database file is provided, use that to initialize.
 	if !sb.db.Init(&sb.config, sb.log) {
-		_, delay = sb.db.Update(sb.api)
+		delay, _ = sb.db.Update(sb.api)
 	} else {
 		if age := sb.db.SinceLastUpdate(); age < sb.config.UpdatePeriod {
 			delay = sb.config.UpdatePeriod - age
@@ -502,11 +502,10 @@ func (sb *SafeBrowser) LookupURLs(urls []string) (threats [][]URLThreat, err err
 func (sb *SafeBrowser) updater(delay time.Duration) {
 	for {
 		sb.log.Printf("Next update in %v", delay)
-		ticker := time.After(delay)
 		select {
-		case <-ticker:
+		case <-time.After(delay):
 			var ok bool
-			if ok, delay = sb.db.Update(sb.api); ok {
+			if delay, ok = sb.db.Update(sb.api); ok {
 				sb.log.Printf("background threat list updated")
 				sb.c.Purge()
 			}
