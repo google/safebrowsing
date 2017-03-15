@@ -267,10 +267,11 @@ type SafeBrowser struct {
 
 // Stats records statistics regarding SafeBrowser's operation.
 type Stats struct {
-	QueriesByDatabase int64 // Number of queries satisfied by the database alone
-	QueriesByCache    int64 // Number of queries satisfied by the cache alone
-	QueriesByAPI      int64 // Number of queries satisfied by an API call
-	QueriesFail       int64 // Number of queries that could not be satisfied
+	QueriesByDatabase int64         // Number of queries satisfied by the database alone
+	QueriesByCache    int64         // Number of queries satisfied by the cache alone
+	QueriesByAPI      int64         // Number of queries satisfied by an API call
+	QueriesFail       int64         // Number of queries that could not be satisfied
+	DatabaseUpdateLag time.Duration // Duration since last *missed* update. 0 if next update is in the future.
 }
 
 // NewSafeBrowser creates a new SafeBrowser.
@@ -316,14 +317,19 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 	}
 	sb.log = log.New(w, "safebrowsing: ", log.Ldate|log.Ltime|log.Lshortfile)
 
+	delay := time.Duration(0)
 	// If database file is provided, use that to initialize.
 	if !sb.db.Init(&sb.config, sb.log) {
-		sb.db.Update(sb.api)
+		delay, _ = sb.db.Update(sb.api)
+	} else {
+		if age := sb.db.SinceLastUpdate(); age < sb.config.UpdatePeriod {
+			delay = sb.config.UpdatePeriod - age
+		}
 	}
 
 	// Start the background list updater.
 	sb.done = make(chan bool)
-	go sb.updater(conf.UpdatePeriod)
+	go sb.updater(delay)
 	return sb, nil
 }
 
@@ -337,6 +343,7 @@ func (sb *SafeBrowser) Status() (Stats, error) {
 		QueriesByCache:    atomic.LoadInt64(&sb.stats.QueriesByCache),
 		QueriesByAPI:      atomic.LoadInt64(&sb.stats.QueriesByAPI),
 		QueriesFail:       atomic.LoadInt64(&sb.stats.QueriesFail),
+		DatabaseUpdateLag: sb.db.UpdateLag(),
 	}
 	return stats, sb.db.Status()
 }
@@ -492,16 +499,17 @@ func (sb *SafeBrowser) LookupURLs(urls []string) (threats [][]URLThreat, err err
 // updater is a blocking method that periodically updates the local database.
 // This should be run as a separate goroutine and will be automatically stopped
 // when sb.Close is called.
-func (sb *SafeBrowser) updater(period time.Duration) {
-	ticker := time.NewTicker(period)
-	defer ticker.Stop()
-
+func (sb *SafeBrowser) updater(delay time.Duration) {
 	for {
+		sb.log.Printf("Next update in %v", delay)
 		select {
-		case <-ticker.C:
-			sb.log.Printf("background threat list update")
-			sb.c.Purge()
-			sb.db.Update(sb.api)
+		case <-time.After(delay):
+			var ok bool
+			if delay, ok = sb.db.Update(sb.api); ok {
+				sb.log.Printf("background threat list updated")
+				sb.c.Purge()
+			}
+
 		case <-sb.done:
 			return
 		}

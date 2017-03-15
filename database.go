@@ -20,6 +20,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"log"
+	"math/rand"
 	"os"
 	"sync"
 	"time"
@@ -30,7 +31,11 @@ import (
 // jitter is the maximum amount of time that we expect an API list update to
 // actually take. We add this time to the update period time to give some
 // leeway before declaring the database as stale.
-const jitter = 30 * time.Second
+const (
+	maxRetryDelay  = 24 * time.Hour
+	baseRetryDelay = 15 * time.Minute
+	jitter         = 30 * time.Second
+)
 
 // database tracks the state of the threat lists published by the Safe Browsing
 // API. Since the global blacklist is constantly changing, the contents of the
@@ -63,8 +68,9 @@ type database struct {
 	tfl threatsForLookup
 	ml  sync.RWMutex // Protects tfl, err, and last
 
-	err  error     // Last error encountered
-	last time.Time // Last time the threat list were synced
+	err             error     // Last error encountered
+	last            time.Time // Last time the threat list were synced
+	updateAPIErrors uint      // Number of times we attempted to contact the api and failed
 
 	log *log.Logger
 }
@@ -145,10 +151,28 @@ func (db *database) Status() error {
 	return nil
 }
 
+// UpdateLag reports the amount of time in between when we expected to run
+// a database update and the current time
+func (db *database) UpdateLag() time.Duration {
+	lag := db.SinceLastUpdate()
+	if lag < db.config.UpdatePeriod {
+		return 0
+	}
+	return lag - db.config.UpdatePeriod
+}
+
+// SinceLastUpdate gives the duration since the last database update
+func (db *database) SinceLastUpdate() time.Duration {
+	db.ml.RLock()
+	defer db.ml.RUnlock()
+
+	return db.config.now().Sub(db.last)
+}
+
 // Update synchronizes the local threat lists with those maintained by the
 // global Safe Browsing API servers. If the update is successful, Status should
 // report a nil error.
-func (db *database) Update(api api) {
+func (db *database) Update(api api) (time.Duration, bool) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -183,23 +207,42 @@ func (db *database) Update(api api) {
 	last := db.config.now()
 	resp, err := api.ListUpdate(req)
 	if err != nil {
-		db.log.Printf("ListUpdate failure: %v", err)
+		db.log.Printf("ListUpdate failure (%d): %v", db.updateAPIErrors+1, err)
 		db.setError(err)
-		return
+		// backoff strategy: MIN((2**N-1 * 15 minutes) * (RAND + 1), 24 hours)
+		n := 1 << db.updateAPIErrors
+		delay := time.Duration(float64(n) * (rand.Float64() + 1) * float64(baseRetryDelay))
+		if delay > maxRetryDelay {
+			delay = maxRetryDelay
+		}
+		db.updateAPIErrors++
+		return delay, false
+	}
+	db.updateAPIErrors = 0
+
+	// add jitter to wait time to avoid all servers lining up
+	nextUpdateWait := db.config.UpdatePeriod + time.Duration(rand.Int31n(60)-30)*time.Second
+	if resp.MinimumWaitDuration != nil {
+		serverMinWait := time.Duration(resp.MinimumWaitDuration.Seconds)*time.Second + time.Duration(resp.MinimumWaitDuration.Nanos)
+		if serverMinWait > nextUpdateWait {
+			nextUpdateWait = serverMinWait
+			db.log.Printf("Server requested next update in %v", nextUpdateWait)
+		}
 	}
 	if len(resp.ListUpdateResponses) != numTypes {
+		db.setError(errors.New("safebrowsing: threat list count mismatch"))
 		db.log.Printf("invalid server response: got %d, want %d threat lists",
 			len(resp.ListUpdateResponses), numTypes)
-		db.setError(errors.New("safebrowsing: threat list count mismatch"))
-		return
+		return nextUpdateWait, false
 	}
 
 	// Update the threat database with the response.
 	db.generateThreatsForUpdate()
 	if err := db.tfu.update(resp); err != nil {
-		db.log.Printf("update failure: %v", err)
 		db.setError(err)
-		return
+		db.log.Printf("update failure: %v", err)
+		db.tfu = nil
+		return nextUpdateWait, false
 	}
 	dbf := databaseFormat{make(threatsForUpdate), last}
 	for td, phs := range db.tfu {
@@ -215,6 +258,8 @@ func (db *database) Update(api api) {
 			db.log.Printf("save failure: %v", err)
 		}
 	}
+
+	return nextUpdateWait, true
 }
 
 // Lookup looks up the full hash in the threat list and returns a partial
