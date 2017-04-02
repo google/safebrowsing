@@ -240,6 +240,7 @@ func TestDatabaseInit(t *testing.T) {
 		}
 
 		db2.config, db2.log = nil, nil
+		db2.wg = nil
 		if !v.fail && !reflect.DeepEqual(db2, v.newDB) {
 			t.Errorf("test %d, mismatching database contents:\ngot  %+v\nwant %+v", i, db2, v.newDB)
 		}
@@ -726,5 +727,67 @@ func TestDatabaseLoadErrors(t *testing.T) {
 
 	if _, err := loadDatabase(path); err != io.ErrUnexpectedEOF {
 		t.Errorf("mismatching error: got %v, want %v", err, io.ErrUnexpectedEOF)
+	}
+}
+
+func TestDatabaseWaitGroup(t *testing.T) {
+	// Set up mock time function.
+	var now time.Time
+	mockNow := func() time.Time { return now }
+
+	// Create a database.
+        db := &database{}
+	config := &Config{
+		now: mockNow,
+	}
+
+	// The initial database path is not given, so initialization should fail.
+	logger := log.New(ioutil.Discard, "", 0)
+	if db.Init(config, logger) {
+		t.Error("database initialization should fail, but succeeded.")
+	}
+	status := db.Status()
+	done := false
+	ch := make(chan int)
+	if err, ok := status.(*ErrDBNotReady); !ok {
+		t.Error("expecting ErrDBNotReady error, but got a different status: %v", err)
+	} else {
+		// Simulate a blocking wait for the SafeBrowser users.
+		// The users will check errors returned by NewSafeBrowser() and LookupURLs(), and
+		// if it's an ErrDBNoReady error, they could block wait by calling Wait() on the
+		// error object.
+		go func() {
+			err.Wait()
+			done = true
+			ch <- 1
+		}()
+	}
+
+	// Make sure that the waig group is blocked at this stage. It should unblock later when the
+	// database is successfully updated.
+	select {
+	case <-ch:
+		t.Error("not expecting unblock signal from the user here.")
+	case <-time.After(10 * time.Millisecond):
+	}
+
+	// Set up mocks for updating the database.
+	path := mustGetTempFile(t)
+	defer os.Remove(path)
+	var resp pb.FetchThreatListUpdatesResponse
+	var errResponse error
+	mockAPI := &mockAPI{
+		listUpdate: func(*pb.FetchThreatListUpdatesRequest) (*pb.FetchThreatListUpdatesResponse, error) {
+			return &resp, errResponse
+		},
+	}
+
+	// This time, the database update should succeed, and thus unblock the wait group.
+	db.config.DBPath = path
+	db.Update(mockAPI)
+	select {
+	case <-ch:
+	case <-time.After(1 * time.Second):
+		t.Error("expecting unblock signal from the user here, but still blocked.")
 	}
 }
