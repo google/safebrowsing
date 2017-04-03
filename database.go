@@ -108,7 +108,7 @@ type databaseFormat struct {
 // ErrDBNotReady is a public error type with a wait method for database.
 type ErrDBNotReady struct {
 	cause error
-	wg *sync.WaitGroup
+	wg    *sync.WaitGroup
 }
 
 func (e *ErrDBNotReady) Error() string {

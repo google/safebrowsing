@@ -736,7 +736,7 @@ func TestDatabaseWaitGroup(t *testing.T) {
 	mockNow := func() time.Time { return now }
 
 	// Create a database.
-        db := &database{}
+	db := &database{}
 	config := &Config{
 		now: mockNow,
 	}
