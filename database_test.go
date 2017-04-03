@@ -747,8 +747,7 @@ func TestDatabaseWaitGroup(t *testing.T) {
 		t.Error("database initialization should fail, but succeeded.")
 	}
 	status := db.Status()
-	done := false
-	ch := make(chan int)
+	user_signaled := make(chan int)
 	if err, ok := status.(*ErrDBNotReady); !ok {
 		t.Error("expecting ErrDBNotReady error, but got a different status: %v", err)
 	} else {
@@ -758,15 +757,14 @@ func TestDatabaseWaitGroup(t *testing.T) {
 		// error object.
 		go func() {
 			err.Wait()
-			done = true
-			ch <- 1
+			user_signaled <- 1
 		}()
 	}
 
 	// Make sure that the waig group is blocked at this stage. It should unblock later when the
 	// database is successfully updated.
 	select {
-	case <-ch:
+	case <-user_signaled:
 		t.Error("not expecting unblock signal from the user here.")
 	case <-time.After(10 * time.Millisecond):
 	}
@@ -786,7 +784,7 @@ func TestDatabaseWaitGroup(t *testing.T) {
 	db.config.DBPath = path
 	db.Update(mockAPI)
 	select {
-	case <-ch:
+	case <-user_signaled:
 	case <-time.After(1 * time.Second):
 		t.Error("expecting unblock signal from the user here, but still blocked.")
 	}
