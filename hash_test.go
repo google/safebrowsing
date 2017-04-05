@@ -31,7 +31,7 @@ import (
 
 var (
 	testHashesCached [][]hashPrefix
-	loadOnce   sync.Once
+	loadOnce         sync.Once
 )
 
 func getTestHashes() [][]hashPrefix {
