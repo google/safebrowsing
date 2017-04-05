@@ -21,6 +21,7 @@ import (
 	"io/ioutil"
 	"reflect"
 	"runtime"
+	"sync"
 	"testing"
 
 	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
@@ -28,18 +29,24 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
-var testHashes = func() [][]hashPrefix {
-	var hs [][]hashPrefix
-	b, err := ioutil.ReadFile("testdata/hashes.gob")
-	if err != nil {
-		panic(err)
-	}
-	r := gob.NewDecoder(bytes.NewReader(b))
-	if err := r.Decode(&hs); err != nil {
-		panic(err)
-	}
-	return hs
-}()
+var (
+	testHashesCached [][]hashPrefix
+	loadOnce         sync.Once
+)
+
+func getTestHashes() [][]hashPrefix {
+	loadOnce.Do(func() {
+		b, err := ioutil.ReadFile("testdata/hashes.gob")
+		if err != nil {
+			panic(err)
+		}
+		r := gob.NewDecoder(bytes.NewReader(b))
+		if err := r.Decode(&testHashesCached); err != nil {
+			panic(err)
+		}
+	})
+	return testHashesCached
+}
 
 func TestHashValidate(t *testing.T) {
 	vectors := []struct {
@@ -99,6 +106,8 @@ func TestHashFromPattern(t *testing.T) {
 }
 
 func TestHashSet(t *testing.T) {
+	var testHashes = getTestHashes()
+
 	type hashQuery struct {
 		hash hashPrefix
 		len  int
@@ -167,6 +176,8 @@ func TestHashSet(t *testing.T) {
 }
 
 func BenchmarkHashSet(b *testing.B) {
+	var testHashes = getTestHashes()
+
 	var queries []hashPrefix
 	for _, h := range testHashes[1] {
 		queries = append(queries, "header"+h)
@@ -184,6 +195,8 @@ func BenchmarkHashSet(b *testing.B) {
 }
 
 func BenchmarkHashSetMemory(b *testing.B) {
+	var testHashes = getTestHashes()
+
 	var ms1, ms2 runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&ms1)
