@@ -1,0 +1,9 @@
+---
+director: adunbar
+owners: Shopify/secdevops
+classification: tier3
+url: https://safebrowsing.shopifycloud.com
+beta: true
+security:
+  data_management:
+    contains_pii: false
