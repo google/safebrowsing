@@ -251,8 +251,8 @@ func (c Config) copy() Config {
 // local database and caching that would normally be needed to interact
 // with the API server.
 type SafeBrowser struct {
+	stats  Stats // Must be first for 64-bit alignment on non 64-bit systems.
 	config Config
-	stats  Stats
 	api    api
 	db     database
 	c      cache
