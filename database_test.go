@@ -642,7 +642,7 @@ func TestDatabasePersistence(t *testing.T) {
 	}{{
 		last: time.Time{},
 	}, {
-		last: time.Now(),
+		last: time.Now().Round(0), // Strip monotonic timestamp in Go1.9
 	}, {
 		last: time.Unix(123456, 789),
 		tfu: threatsForUpdate{
