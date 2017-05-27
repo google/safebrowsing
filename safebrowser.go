@@ -94,6 +94,10 @@ const (
 	// strings to send with every API call.
 	DefaultID      = "GoSafeBrowser"
 	DefaultVersion = "1.0.0"
+
+	// DefaultRequestTimeout is the default amount of time a single
+	// api request can take.
+	DefaultRequestTimeout = time.Minute
 )
 
 // Errors specific to this package.
@@ -207,6 +211,9 @@ type Config struct {
 	// If empty, it defaults to DefaultThreatLists.
 	ThreatLists []ThreatDescriptor
 
+	// RequestTimeout determines the timeout value for the http client.
+	RequestTimeout time.Duration
+
 	// Logger is an io.Writer that allows SafeBrowser to write debug information
 	// intended for human consumption.
 	// If empty, no logs will be written.
@@ -230,6 +237,9 @@ func (c *Config) setDefaults() bool {
 	}
 	if c.UpdatePeriod <= 0 {
 		c.UpdatePeriod = DefaultUpdatePeriod
+	}
+	if c.RequestTimeout <= 0 {
+		c.RequestTimeout = DefaultRequestTimeout
 	}
 	if c.compressionTypes == nil {
 		c.compressionTypes = []pb.CompressionType{pb.CompressionType_RAW, pb.CompressionType_RICE}
@@ -287,7 +297,7 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 	// Create the SafeBrowsing object.
 	if conf.api == nil {
 		var err error
-		conf.api, err = newNetAPI(conf.ServerURL, conf.APIKey)
+		conf.api, err = newNetAPI(conf.ServerURL, conf.APIKey, conf.RequestTimeout)
 		if err != nil {
 			return nil, err
 		}
