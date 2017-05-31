@@ -54,7 +54,7 @@ import (
 
 var (
 	dotsRegexp          = regexp.MustCompile("[.]+")
-	portRegexp          = regexp.MustCompile(`:\d+$`)
+	portRegexp          = regexp.MustCompile(`:(\d+)(/|$)`)
 	possibleIPRegexp    = regexp.MustCompile(`^(?i)((?:0x[0-9a-f]+|[0-9\.])+)$`)
 	trailingSpaceRegexp = regexp.MustCompile(`^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) `)
 )
@@ -213,7 +213,12 @@ func getScheme(url string) (scheme, path string) {
 				return "", url
 			}
 		case c == ':':
-			return url[:i], url[i+1:]
+			// If there is not a port after the first ':', (url[:i], url[i+1:])
+			// will be returned. e.g. "www.abc.com:80/".
+			firstIndex := portRegexp.FindStringIndex(url[i:])
+			if firstIndex == nil || firstIndex[0] != 0 {
+				return url[:i], url[i+1:]
+			}
 		default:
 			// Invalid character, so there is no valid scheme.
 			return "", url
@@ -275,7 +280,6 @@ func parseURL(urlStr string) (parsedURL *url.URL, err error) {
 	// If missing, we assume that it is an "http".
 	// 3. We strip off the fragment and the escaped query as they are not
 	// required for building patterns for Safe Browsing.
-
 	parsedURL = new(url.URL)
 	// Remove the URL fragment.
 	// Also, we decode and encode the URL.
