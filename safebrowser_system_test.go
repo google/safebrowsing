@@ -15,6 +15,7 @@
 package safebrowsing
 
 import (
+	"context"
 	"flag"
 	"testing"
 	"time"
@@ -157,6 +158,11 @@ func TestSafeBrowser(t *testing.T) {
 		},
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := sb.WaitUntilReady(ctx); err != nil {
 		t.Fatal(err)
 	}
 

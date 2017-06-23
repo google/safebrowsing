@@ -72,6 +72,7 @@
 package safebrowsing
 
 import (
+	"context"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -356,6 +357,12 @@ func (sb *SafeBrowser) Status() (Stats, error) {
 		DatabaseUpdateLag: sb.db.UpdateLag(),
 	}
 	return stats, sb.db.Status()
+}
+
+// WaitUntilReady blocks until the database is not in an error state,
+// or until the provided Context is cancelled.
+func (sb *SafeBrowser) WaitUntilReady(ctx context.Context) error {
+	return sb.db.WaitUntilReady(ctx)
 }
 
 // LookupURLs looks up the provided URLs. It returns a list of threats, one for
