@@ -19,6 +19,7 @@ import (
 	"compress/gzip"
 	"encoding/gob"
 	"errors"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -68,6 +69,13 @@ type database struct {
 	tfl threatsForLookup
 	ml  sync.RWMutex // Protects tfl, err, and last
 
+	// wg is a channel implementing a blocking wait group with timeout, for
+	// signaling the readiness of the database. The SafeBrowser object users
+	// are supposed to get an error containing this wait group so that they
+	// can choose to block-wait until the database is ready.
+	wg chan int
+	mw sync.RWMutex
+
 	err             error     // Last error encountered
 	last            time.Time // Last time the threat list were synced
 	updateAPIErrors uint      // Number of times we attempted to contact the api and failed
@@ -97,11 +105,37 @@ type databaseFormat struct {
 	Time  time.Time
 }
 
+// ErrDBNotReady is a public error type with a wait method for database.
+type ErrDBNotReady struct {
+	cause error
+	wg    chan int
+}
+
+func (e *ErrDBNotReady) Error() string {
+	return fmt.Sprintf("Database not ready. (%v)", e.cause)
+}
+
+// Wait blocks and waits until the database is ready or until it times out.
+// If the timeout value is 0, it waits indefinitely.
+func (e *ErrDBNotReady) Wait(timeout time.Duration) bool {
+	if timeout == 0 {
+		<-e.wg
+		return true
+	}
+	select {
+	case <-e.wg:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
 // Init initializes the database from the specified file in config.DBPath.
 // It reports true if the database was successfully loaded.
 func (db *database) Init(config *Config, logger *log.Logger) bool {
 	db.config = config
 	db.log = logger
+	db.setNewWaitGroup()
 	if db.config.DBPath == "" {
 		db.log.Printf("no database file specified")
 		db.setError(errStale)
@@ -143,12 +177,33 @@ func (db *database) Status() error {
 	defer db.ml.RUnlock()
 
 	if db.err != nil {
-		return db.err
+		return &ErrDBNotReady{cause: db.err, wg: db.getWaitGroup()}
 	}
 	if db.config.now().Sub(db.last) > (db.config.UpdatePeriod + jitter) {
-		return errStale
+		return &ErrDBNotReady{cause: errStale, wg: db.getWaitGroup()}
 	}
 	return nil
+}
+
+// setNewWaitGroup creates and set a new wait group for the database readiness.
+// When the database is updated periodically or initially, this method should
+// be called and replace the wait group. Also, the previous wait group should
+// be signaled so that the blocking caller can wake up.
+func (db *database) setNewWaitGroup() {
+	db.mw.Lock()
+	defer db.mw.Unlock()
+
+	if db.wg != nil {
+		close(db.wg)
+	}
+	db.wg = make(chan int)
+}
+
+// getWaitGroup returns the current wait group for the database.
+func (db *database) getWaitGroup() chan int {
+	db.mw.RLock()
+	defer db.mw.RUnlock()
+	return db.wg
 }
 
 // UpdateLag reports the amount of time in between when we expected to run
@@ -259,6 +314,7 @@ func (db *database) Update(api api) (time.Duration, bool) {
 		}
 	}
 
+	db.setNewWaitGroup()
 	return nextUpdateWait, true
 }
 
