@@ -240,7 +240,7 @@ func TestDatabaseInit(t *testing.T) {
 			t.Errorf("test %d, mismatching status: got %v, want %v", i, fail, v.fail)
 		}
 
-		db2.config, db2.log, db2.errCh = nil, nil, nil
+		db2.config, db2.log, db2.readyCh = nil, nil, nil
 		if !v.fail && !reflect.DeepEqual(db2, v.newDB) {
 			t.Errorf("test %d, mismatching database contents:\ngot  %+v\nwant %+v", i, db2, v.newDB)
 		}
@@ -730,7 +730,7 @@ func TestDatabaseLoadErrors(t *testing.T) {
 	}
 }
 
-func TestWaitUntilReady(t *testing.T) {
+func TestReady(t *testing.T) {
 	config := &Config{
 		ThreatLists: []ThreatDescriptor{{0, 2, 3}},
 	}
@@ -741,16 +741,22 @@ func TestWaitUntilReady(t *testing.T) {
 	// Expect timeout
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
-	if err := db.WaitUntilReady(ctx); err == nil {
-		t.Fatal("db.WaituntilReady() = nil, wanted timeout")
+	select {
+	case <-db.Ready():
+		t.Fatal("db.Ready() is closed, wanted timeout")
+	case <-ctx.Done():
+		// expected
 	}
 
 	done := make(chan bool)
 	go func(t *testing.T, done chan bool) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		if err := db.WaitUntilReady(ctx); err != nil {
-			t.Errorf("db.WaitUntilReady() = %v, wanted nil", err)
+		select {
+		case <-db.Ready():
+			// expected
+		case <-ctx.Done():
+			t.Errorf("db.Ready() was not closed, expected close before timeout")
 		}
 		close(done)
 	}(t, done)

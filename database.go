@@ -17,7 +17,6 @@ package safebrowsing
 import (
 	"bytes"
 	"compress/gzip"
-	"context"
 	"encoding/gob"
 	"errors"
 	"log"
@@ -70,7 +69,7 @@ type database struct {
 	ml  sync.RWMutex // Protects tfl, err, and last
 
 	err             error         // Last error encountered
-	errCh           chan struct{} // Used for waiting until not in an error state.
+	readyCh         chan struct{} // Used for waiting until not in an error state.
 	last            time.Time     // Last time the threat list were synced
 	updateAPIErrors uint          // Number of times we attempted to contact the api and failed
 
@@ -177,15 +176,9 @@ func (db *database) SinceLastUpdate() time.Duration {
 	return db.config.now().Sub(db.last)
 }
 
-// WaitUntilReady blocks until the database is not in an error state,
-// or the provided Context is cancelled.
-func (db *database) WaitUntilReady(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-db.errCh:
-		return nil
-	}
+// Ready returns a channel that's closed when the database is ready for queries.
+func (db *database) Ready() <-chan struct{} {
+	return db.readyCh
 }
 
 // Update synchronizes the local threat lists with those maintained by the
@@ -307,7 +300,7 @@ func (db *database) setError(err error) {
 
 	db.ml.Lock()
 	if db.err == nil {
-		db.errCh = make(chan struct{})
+		db.readyCh = make(chan struct{})
 	}
 	db.tfl, db.err, db.last = nil, err, time.Time{}
 	db.ml.Unlock()
@@ -319,7 +312,7 @@ func (db *database) setError(err error) {
 // This assumes that the db.ml lock is already held.
 func (db *database) setStale() {
 	if db.err == nil {
-		db.errCh = make(chan struct{})
+		db.readyCh = make(chan struct{})
 	}
 	db.err = errStale
 }
@@ -333,7 +326,7 @@ func (db *database) clearError() {
 	defer db.ml.Unlock()
 
 	if db.err != nil {
-		close(db.errCh)
+		close(db.readyCh)
 	}
 	db.err = nil
 }
