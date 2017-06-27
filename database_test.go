@@ -15,6 +15,7 @@
 package safebrowsing
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -239,7 +240,7 @@ func TestDatabaseInit(t *testing.T) {
 			t.Errorf("test %d, mismatching status: got %v, want %v", i, fail, v.fail)
 		}
 
-		db2.config, db2.log = nil, nil
+		db2.config, db2.log, db2.readyCh = nil, nil, nil
 		if !v.fail && !reflect.DeepEqual(db2, v.newDB) {
 			t.Errorf("test %d, mismatching database contents:\ngot  %+v\nwant %+v", i, db2, v.newDB)
 		}
@@ -727,4 +728,39 @@ func TestDatabaseLoadErrors(t *testing.T) {
 	if _, err := loadDatabase(path); err != io.ErrUnexpectedEOF {
 		t.Errorf("mismatching error: got %v, want %v", err, io.ErrUnexpectedEOF)
 	}
+}
+
+func TestReady(t *testing.T) {
+	config := &Config{
+		ThreatLists: []ThreatDescriptor{{0, 2, 3}},
+	}
+
+	db := new(database)
+	logger := log.New(ioutil.Discard, "", 0)
+	db.Init(config, logger)
+	// Expect timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	select {
+	case <-db.Ready():
+		t.Fatal("db.Ready() is closed, wanted timeout")
+	case <-ctx.Done():
+		// expected
+	}
+
+	done := make(chan bool)
+	go func(t *testing.T, done chan bool) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+		defer cancel()
+		select {
+		case <-db.Ready():
+			// expected
+		case <-ctx.Done():
+			t.Errorf("db.Ready() was not closed, expected close before timeout")
+		}
+		close(done)
+	}(t, done)
+	db.clearError()
+	<-done
+
 }

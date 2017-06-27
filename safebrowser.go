@@ -72,6 +72,7 @@
 package safebrowsing
 
 import (
+	"context"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -356,6 +357,23 @@ func (sb *SafeBrowser) Status() (Stats, error) {
 		DatabaseUpdateLag: sb.db.UpdateLag(),
 	}
 	return stats, sb.db.Status()
+}
+
+// WaitUntilReady blocks until the database is not in an error state.
+// Returns nil when the database is ready. Returns an error if the provided
+// context is canceled or if the SafeBrowser instance is Closed.
+func (sb *SafeBrowser) WaitUntilReady(ctx context.Context) error {
+	if atomic.LoadUint32(&sb.closed) == 1 {
+		return errClosed
+	}
+	select {
+	case <-sb.db.Ready():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-sb.done:
+		return errClosed
+	}
 }
 
 // LookupURLs looks up the provided URLs. It returns a list of threats, one for

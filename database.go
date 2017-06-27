@@ -68,9 +68,10 @@ type database struct {
 	tfl threatsForLookup
 	ml  sync.RWMutex // Protects tfl, err, and last
 
-	err             error     // Last error encountered
-	last            time.Time // Last time the threat list were synced
-	updateAPIErrors uint      // Number of times we attempted to contact the api and failed
+	err             error         // Last error encountered
+	readyCh         chan struct{} // Used for waiting until not in an error state.
+	last            time.Time     // Last time the threat list were synced
+	updateAPIErrors uint          // Number of times we attempted to contact the api and failed
 
 	log *log.Logger
 }
@@ -100,11 +101,14 @@ type databaseFormat struct {
 // Init initializes the database from the specified file in config.DBPath.
 // It reports true if the database was successfully loaded.
 func (db *database) Init(config *Config, logger *log.Logger) bool {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.setError(errors.New("not intialized"))
 	db.config = config
 	db.log = logger
 	if db.config.DBPath == "" {
 		db.log.Printf("no database file specified")
-		db.setError(errStale)
+		db.setError(errors.New("no database loaded"))
 		return false
 	}
 	dbf, err := loadDatabase(db.config.DBPath)
@@ -118,7 +122,9 @@ func (db *database) Init(config *Config, logger *log.Logger) bool {
 	// superset of the specified configuration.
 	if db.config.now().Sub(dbf.Time) > (db.config.UpdatePeriod + jitter) {
 		db.log.Printf("database loaded is stale")
-		db.setError(errStale)
+		db.ml.Lock()
+		defer db.ml.Unlock()
+		db.setStale()
 		return false
 	}
 	tfuNew := make(threatsForUpdate)
@@ -126,8 +132,8 @@ func (db *database) Init(config *Config, logger *log.Logger) bool {
 		if row, ok := dbf.Table[td]; ok {
 			tfuNew[td] = row
 		} else {
-			db.log.Printf("database configuration mismatch")
-			db.setError(errStale)
+			db.log.Printf("database configuration mismatch, missing %v", td)
+			db.setError(errors.New("database configuration mismatch"))
 			return false
 		}
 	}
@@ -146,7 +152,8 @@ func (db *database) Status() error {
 		return db.err
 	}
 	if db.config.now().Sub(db.last) > (db.config.UpdatePeriod + jitter) {
-		return errStale
+		db.setStale()
+		return db.err
 	}
 	return nil
 }
@@ -167,6 +174,11 @@ func (db *database) SinceLastUpdate() time.Duration {
 	defer db.ml.RUnlock()
 
 	return db.config.now().Sub(db.last)
+}
+
+// Ready returns a channel that's closed when the database is ready for queries.
+func (db *database) Ready() <-chan struct{} {
+	return db.readyCh
 }
 
 // Update synchronizes the local threat lists with those maintained by the
@@ -287,8 +299,36 @@ func (db *database) setError(err error) {
 	db.tfu = nil
 
 	db.ml.Lock()
+	if db.err == nil {
+		db.readyCh = make(chan struct{})
+	}
 	db.tfl, db.err, db.last = nil, err, time.Time{}
 	db.ml.Unlock()
+}
+
+// setStale sets the error state to a stale message, without clearing
+// the database state.
+//
+// This assumes that the db.ml lock is already held.
+func (db *database) setStale() {
+	if db.err == nil {
+		db.readyCh = make(chan struct{})
+	}
+	db.err = errStale
+}
+
+// clearError clears the db error state, and unblocks any callers of
+// WaitUntilReady.
+//
+// This assumes that the db.mu lock is already held.
+func (db *database) clearError() {
+	db.ml.Lock()
+	defer db.ml.Unlock()
+
+	if db.err != nil {
+		close(db.readyCh)
+	}
+	db.err = nil
 }
 
 // generateThreatsForUpdate regenerates the threatsForUpdate hashes from
@@ -329,10 +369,11 @@ func (db *database) generateThreatsForLookups(last time.Time) {
 
 	db.ml.Lock()
 	wasBad := db.err != nil
-	db.tfl, db.err, db.last = tfl, nil, last
+	db.tfl, db.last = tfl, last
 	db.ml.Unlock()
 
 	if wasBad {
+		db.clearError()
 		db.log.Printf("database is now healthy")
 	}
 }

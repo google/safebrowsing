@@ -15,6 +15,7 @@
 package safebrowsing
 
 import (
+	"context"
 	"flag"
 	"testing"
 	"time"
@@ -159,6 +160,11 @@ func TestSafeBrowser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	if err := sb.WaitUntilReady(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
 
 	var c = pb.FetchThreatListUpdatesRequest_ListUpdateRequest{
 		ThreatType:      pb.ThreatType_POTENTIALLY_HARMFUL_APPLICATION,
@@ -180,6 +186,11 @@ func TestSafeBrowser(t *testing.T) {
 	if err := sb.Close(); err != nil {
 		t.Fatal(err)
 	}
+	ctx, cancel = context.WithTimeout(context.Background(), time.Millisecond)
+	if err := sb.WaitUntilReady(ctx); err != errClosed {
+		t.Errorf("sb.WaitUntilReady() = %v on closed SafeBrowser, want %v", err, errClosed)
+	}
+	cancel()
 
 	for _, hs := range sb.db.tfl {
 		if hs.Len() == 0 {
