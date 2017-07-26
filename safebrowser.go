@@ -402,16 +402,13 @@ func (sb *SafeBrowser) LookupURLs(urls []string) (threats [][]URLThreat, err err
 		return threats, err
 	}
 
-	// TODO: There are some optimizations to be made here:
-	//	1.) We could force a database update if it is in error.
-	//  However, we must ensure that we perform some form of rate-limiting.
 	hashes := make(map[hashPrefix]string)
 	hash2idx := make(map[hashPrefix]int)
 
 	// Construct the follow-up request being made to the server.
 	// In the request, we only ask for partial hashes for privacy reasons.
 	req := &pb.FindFullHashesRequest{
-			Client: &pb.ClientInfo{
+		Client: &pb.ClientInfo{
 			ClientId:      sb.config.ID,
 			ClientVersion: sb.config.Version,
 		},
@@ -468,7 +465,7 @@ func (sb *SafeBrowser) LookupURLs(urls []string) (threats [][]URLThreat, err err
 					ptm[pb.PlatformType(td.PlatformType)] = true
 					tetm[pb.ThreatEntryType(td.ThreatEntryType)] = true
 				}
-				req.ThreatInfo.ThreatEntries = append(req.ThreatInfo.ThreatEntries, 
+				req.ThreatInfo.ThreatEntries = append(req.ThreatInfo.ThreatEntries,
 					&pb.ThreatEntry{Hash: []byte(partialHash)})
 			}
 		}
