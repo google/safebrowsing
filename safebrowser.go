@@ -272,6 +272,8 @@ type SafeBrowser struct {
 
 	log *log.Logger
 
+	nextlookuptime time.Time
+
 	closed uint32
 	done   chan bool // Signals that the updater routine should stop
 }
@@ -337,6 +339,8 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 			delay = sb.config.UpdatePeriod - age
 		}
 	}
+
+	sb.nextlookuptime = time.Unix(0, 0)
 
 	// Start the background list updater.
 	sb.done = make(chan bool)
@@ -481,12 +485,21 @@ func (sb *SafeBrowser) LookupURLs(urls []string) (threats [][]URLThreat, err err
 	}
 
 	// Actually query the Safe Browsing API for exact full hash matches.
-	if len(req.ThreatInfo.ThreatEntries) != 0 {
+	if len(req.ThreatInfo.ThreatEntries) != 0 && sb.nextlookuptime.Before(time.Now()) {
 		resp, err := sb.api.HashLookup(req)
 		if err != nil {
+			// TODO backoff strategy ?
 			sb.log.Printf("HashLookup failure: %v", err)
 			atomic.AddInt64(&sb.stats.QueriesFail, 1)
 			return threats, err
+		}
+
+		if resp.MinimumWaitDuration != nil {
+			serverMinWait := time.Duration(resp.MinimumWaitDuration.Seconds)*time.Second + time.Duration(resp.MinimumWaitDuration.Nanos)
+			sb.log.Printf("Next lookup in %v", serverMinWait)
+			sb.nextlookuptime = time.Now().Add(serverMinWait)
+		} else {
+			sb.nextlookuptime = time.Unix(0, 0)
 		}
 
 		// Update the cache.
