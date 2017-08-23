@@ -112,6 +112,47 @@ func TestDatabaseInit(t *testing.T) {
 			},
 		},
 	}, {
+		// Load from an older but not yet stale valid database file.
+		config: &Config{
+			ThreatLists: []ThreatDescriptor{
+				{0, 2, 3},
+				{1, 2, 3},
+			},
+			UpdatePeriod: DefaultUpdatePeriod,
+		},
+		oldDB: &database{
+			last: now.Add(-DefaultUpdatePeriod + (30 * time.Minute)),
+			tfu: threatsForUpdate{
+				{0, 2, 3}: partialHashes{
+					Hashes: []hashPrefix{"aaaa", "bbbb"},
+					SHA256: mustDecodeHex(t, "e5c1edb50ff8b4fcc3ead3a845ffbe1ad51c9dae5d44335a5c333b57ac8df062"),
+					State:  []byte("state1"),
+				},
+				{1, 2, 3}: partialHashes{
+					Hashes: []hashPrefix{"bbbb", "cccc"},
+					SHA256: mustDecodeHex(t, "9a720c6ee500f5a0d4e5477fc9f3d8573226723d0b338b0c8f572d877bdfa224"),
+					State:  []byte("state2"),
+				},
+			},
+		},
+		newDB: &database{
+			last: now.Add(-DefaultUpdatePeriod + (30 * time.Minute)),
+			tfu: threatsForUpdate{
+				{0, 2, 3}: partialHashes{
+					SHA256: mustDecodeHex(t, "e5c1edb50ff8b4fcc3ead3a845ffbe1ad51c9dae5d44335a5c333b57ac8df062"),
+					State:  []byte("state1"),
+				},
+				{1, 2, 3}: partialHashes{
+					SHA256: mustDecodeHex(t, "9a720c6ee500f5a0d4e5477fc9f3d8573226723d0b338b0c8f572d877bdfa224"),
+					State:  []byte("state2"),
+				},
+			},
+			tfl: threatsForLookup{
+				{0, 2, 3}: newHashSet([]hashPrefix{"aaaa", "bbbb"}),
+				{1, 2, 3}: newHashSet([]hashPrefix{"bbbb", "cccc"}),
+			},
+		},
+	}, {
 		// Load from a valid database file with more descriptors than in configuration.
 		config: &Config{
 			ThreatLists: []ThreatDescriptor{{0, 2, 3}},
@@ -187,7 +228,7 @@ func TestDatabaseInit(t *testing.T) {
 			UpdatePeriod: DefaultUpdatePeriod,
 		},
 		oldDB: &database{
-			last: now.Add(-DefaultUpdatePeriod - time.Minute),
+			last: now.Add(-2 * (DefaultUpdatePeriod + time.Minute)),
 			tfu: threatsForUpdate{
 				{0, 2, 3}: partialHashes{
 					Hashes: []hashPrefix{"aaaa", "bbbb"},
@@ -763,4 +804,40 @@ func TestReady(t *testing.T) {
 	db.clearError()
 	<-done
 
+}
+
+func TestIsStale(t *testing.T) {
+	now := time.Unix(1451436338, 951473000)
+	mockNow := func() time.Time { return now }
+	db := new(database)
+	logger := log.New(ioutil.Discard, "", 0)
+
+	config := &Config{
+		UpdatePeriod: DefaultUpdatePeriod,
+	}
+	db.Init(config, logger)
+	db.config.now = mockNow
+
+	vectors := []struct {
+		LastUpdate    time.Time
+		ExpectedStale bool
+	}{
+		// Last update of now isn't stale
+		{LastUpdate: now, ExpectedStale: false},
+		// Last update between DefaultUpdatePeriod and 2*DefaultUpdatePeriod isn't stale
+		{LastUpdate: now.Add(-(DefaultUpdatePeriod + time.Minute)), ExpectedStale: false},
+		// Last update right at the cusp of -2 * the DefaultUpdatePeriod isn't stale
+		{LastUpdate: now.Add(-2 * DefaultUpdatePeriod), ExpectedStale: false},
+		// Last update right past -2 * DefaultUpdatePeriod + jitter is stale
+		{LastUpdate: now.Add(-2 * (DefaultUpdatePeriod + (2 * time.Minute))), ExpectedStale: true},
+		// Last update well past -2 * DefaultUpdatePeriod + jitter is stale
+		{LastUpdate: now.Add(-3 * (DefaultUpdatePeriod + time.Minute)), ExpectedStale: true},
+	}
+
+	for i, v := range vectors {
+		stale := db.isStale(v.LastUpdate)
+		if stale != v.ExpectedStale {
+			t.Errorf("test %d, mismatching isStale: got %v, want %v", i, stale, v.ExpectedStale)
+		}
+	}
 }
