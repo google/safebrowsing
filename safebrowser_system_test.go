@@ -34,7 +34,7 @@ func TestNetworkAPIUpdate(t *testing.T) {
 		t.Skip()
 	}
 
-	nm, err := newNetAPI(DefaultServerURL, *apiKeyFlag, time.Minute)
+	nm, err := newNetAPI(DefaultServerURL, *apiKeyFlag)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestNetworkAPIUpdate(t *testing.T) {
 		}}
 	req := &pb.FetchThreatListUpdatesRequest{ListUpdateRequests: lists}
 
-	dat, err := nm.ListUpdate(req)
+	dat, err := nm.ListUpdate(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestNetworkAPIUpdate(t *testing.T) {
 						ThreatEntries:    threats,
 					},
 				}
-				fullHashResp, err := nm.HashLookup(fullHashReq)
+				fullHashResp, err := nm.HashLookup(context.Background(), fullHashReq)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -113,7 +113,7 @@ func TestNetworkAPILookup(t *testing.T) {
 		t.Skip()
 	}
 
-	nm, err := newNetAPI(DefaultServerURL, *apiKeyFlag, time.Minute)
+	nm, err := newNetAPI(DefaultServerURL, *apiKeyFlag)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestNetworkAPILookup(t *testing.T) {
 			ThreatEntries:    []*pb.ThreatEntry{{Hash: []byte(hash[:minHashPrefixLength])}},
 		},
 	}
-	resp, err := nm.HashLookup(req)
+	resp, err := nm.HashLookup(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Lookup failed: %v", err)
 	}

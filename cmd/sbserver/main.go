@@ -358,7 +358,7 @@ func serveLookups(resp http.ResponseWriter, req *http.Request, sb *safebrowsing.
 	}
 
 	// Lookup the URLs.
-	utss, err := sb.LookupURLs(urls)
+	utss, err := sb.LookupURLsContext(req.Context(), urls)
 	if err != nil {
 		http.Error(resp, err.Error(), http.StatusInternalServerError)
 		return
@@ -463,7 +463,7 @@ func serveRedirector(resp http.ResponseWriter, req *http.Request, sb *safebrowsi
 		http.Error(resp, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	threats, err := sb.LookupURLs([]string{rawURL})
+	threats, err := sb.LookupURLsContext(req.Context(), []string{rawURL})
 	if err != nil {
 		http.Error(resp, err.Error(), http.StatusInternalServerError)
 		return
