@@ -397,10 +397,11 @@ func (sb *SafeBrowser) LookupURLs(urls []string) (threats [][]URLThreat, err err
 	return threats, err
 }
 
-// LookupURLsContext looks up the provided URLs, with the ability to cancel the
-// request via a provided context. It is safe to call this method concurrently.
+// LookupURLsContext looks up the provided URLs. The request will be canceled
+// if the provided Context is canceled, or if Config.RequestTimeout has
+// elapsed. It is safe to call this method concurrently.
 //
-// See SafeBrowser.LookupURLs for details on the returned results.
+// See LookupURLs for details on the returned results.
 func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (threats [][]URLThreat, err error) {
 	ctx, cancel := context.WithTimeout(ctx, sb.config.RequestTimeout)
 	defer cancel()

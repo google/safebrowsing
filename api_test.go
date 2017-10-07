@@ -120,7 +120,7 @@ func TestNetAPI(t *testing.T) {
 		t.Errorf("mismatching HashLookup responses:\ngot  %+v\nwant %+v", gotResp, wantResp)
 	}
 
-	// Test cancelled Context returns an error.
+	// Test canceled Context returns an error.
 	wantReq = &pb.FindFullHashesRequest{ThreatInfo: &pb.ThreatInfo{
 		ThreatEntries:    []*pb.ThreatEntry{{Hash: []byte("aaaa")}, {Hash: []byte("bbbbb")}, {Hash: []byte("cccccc")}},
 		ThreatTypes:      []pb.ThreatType{1, 2, 3},
@@ -137,7 +137,7 @@ func TestNetAPI(t *testing.T) {
 	cancel()
 	_, err = api.HashLookup(ctx, wantReq.(*pb.FindFullHashesRequest))
 	if err == nil {
-		t.Errorf("unexpected HashLookup success, wanted http request cancelled")
+		t.Errorf("unexpected HashLookup success, wanted HTTP request canceled")
 	}
 
 	// Test for detection of incorrect protobufs.
