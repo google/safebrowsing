@@ -353,7 +353,7 @@ func TestDatabaseUpdate(t *testing.T) {
 	var resp pb.FetchThreatListUpdatesResponse
 	var errResponse error
 	mockAPI := &mockAPI{
-		listUpdate: func(*pb.FetchThreatListUpdatesRequest) (*pb.FetchThreatListUpdatesResponse, error) {
+		listUpdate: func(context.Context, *pb.FetchThreatListUpdatesRequest) (*pb.FetchThreatListUpdatesResponse, error) {
 			return &resp, errResponse
 		},
 	}
@@ -377,7 +377,7 @@ func TestDatabaseUpdate(t *testing.T) {
 		},
 		MinimumWaitDuration: &google_protobuf.Duration{Seconds: 1200},
 	}
-	delay, updated := db.Update(mockAPI)
+	delay, updated := db.Update(context.Background(), mockAPI)
 	if db.err == nil || updated {
 		t.Fatalf("update 0, unexpected update success")
 	}
@@ -402,7 +402,7 @@ func TestDatabaseUpdate(t *testing.T) {
 		},
 		MinimumWaitDuration: &google_protobuf.Duration{Seconds: 2000},
 	}
-	delay, updated = db.Update(mockAPI)
+	delay, updated = db.Update(context.Background(), mockAPI)
 	if db.err != nil || !updated {
 		t.Fatalf("update 1, unexpected update error: %v", db.err)
 	}
@@ -450,7 +450,7 @@ func TestDatabaseUpdate(t *testing.T) {
 				"d1", "a3b93fac424834c2447e2dbe5db3ec8553519777523907ea310e207f556a7637"),
 		},
 	}
-	delay, updated = db.Update(mockAPI)
+	delay, updated = db.Update(context.Background(), mockAPI)
 	if db.err != nil || !updated {
 		t.Fatalf("update 2, unexpected update error: %v", db.err)
 	}
@@ -480,7 +480,7 @@ func TestDatabaseUpdate(t *testing.T) {
 				"d2", "b742965b7a759ba0254685bfc6edae3b1ba54d0168fb86f526d6c79c3d44c753"),
 		},
 	}
-	delay, updated = db.Update(mockAPI)
+	delay, updated = db.Update(context.Background(), mockAPI)
 	if db.err != nil || !updated {
 		t.Fatalf("update 3, unexpected update error: %v", db.err)
 	}
@@ -518,7 +518,7 @@ func TestDatabaseUpdate(t *testing.T) {
 				"a3", "bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0"),
 		},
 	}
-	delay, updated = db.Update(mockAPI)
+	delay, updated = db.Update(context.Background(), mockAPI)
 	if db.err == nil || updated {
 		t.Fatalf("update 4, unexpected update success")
 	}
@@ -539,7 +539,7 @@ func TestDatabaseUpdate(t *testing.T) {
 				"a4", "5d6506974928a003d2a0ccbd7a40b5341ad10578fd3f54527087c5ecbbd17a12"),
 		},
 	}
-	delay, updated = db.Update(mockAPI)
+	delay, updated = db.Update(context.Background(), mockAPI)
 	if db.err == nil || updated {
 		t.Fatalf("update 5, unexpected update success")
 	}
@@ -554,7 +554,7 @@ func TestDatabaseUpdate(t *testing.T) {
 
 	// Update 6: api is broken for some unknown reason. Checks the backoff
 	errResponse = errors.New("Something broke")
-	delay, updated = db.Update(mockAPI)
+	delay, updated = db.Update(context.Background(), mockAPI)
 	if db.err == nil || updated {
 		t.Fatalf("update 6, unexpected update success")
 	}
@@ -565,7 +565,7 @@ func TestDatabaseUpdate(t *testing.T) {
 	}
 
 	// Update 7: api is still broken, check backoff is larger
-	delay, updated = db.Update(mockAPI)
+	delay, updated = db.Update(context.Background(), mockAPI)
 	if db.err == nil || updated {
 		t.Fatalf("update 7, unexpected update success")
 	}
@@ -576,7 +576,7 @@ func TestDatabaseUpdate(t *testing.T) {
 	}
 
 	// Update 8: api is still broken, check that backoff is larger than before
-	delay, updated = db.Update(mockAPI)
+	delay, updated = db.Update(context.Background(), mockAPI)
 	if db.err == nil || updated {
 		t.Fatalf("update 8, unexpected update success")
 	}
