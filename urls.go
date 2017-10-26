@@ -59,6 +59,18 @@ var (
 	trailingSpaceRegexp = regexp.MustCompile(`^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) `)
 )
 
+// ValidURL parses the given string and returns true if it is a Safe Browsing
+// compatible URL.
+//
+// In general, clients can (and should) just call LookupURLs, which performs the
+// same checks internally. This method can be useful when checking a batch of
+// URLs, as the first parse failure will cause LookupURLs to stop processing
+// the request and return an error.
+func ValidURL(url string) bool {
+	parsed, err := parseURL(url)
+	return parsed != nil && err == nil
+}
+
 // generateHashes returns a set of full hashes for all patterns in the URL.
 func generateHashes(url string) (map[hashPrefix]string, error) {
 	patterns, err := generatePatterns(url)
