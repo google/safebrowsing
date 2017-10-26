@@ -59,14 +59,14 @@ var (
 	trailingSpaceRegexp = regexp.MustCompile(`^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) `)
 )
 
-// IsURL parses the given string and returns true if it is a Safe Browsing
+// ValidURL parses the given string and returns true if it is a Safe Browsing
 // compatible URL.
 //
 // In general, clients can (and should) just call LookupURLs, which performs the
 // same checks internally. This method can be useful when checking a batch of
 // URLs, as the first parse failure will cause LookupURLs to stop processing
 // the request and return an error.
-func IsURL(url string) bool {
+func ValidURL(url string) bool {
 	parsed, err := parseURL(url)
 	return parsed != nil && err == nil
 }
