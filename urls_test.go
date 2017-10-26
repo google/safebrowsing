@@ -21,6 +21,78 @@ import (
 	"testing"
 )
 
+func TestIsURL(t *testing.T) {
+	vectors := []struct {
+		url  string
+		want bool
+	}{
+		{
+			url:  "http://a.b.c/1/2.html?param=1/2",
+			want: true,
+		},
+		{
+			url:  "http://a.b.c/1/2/3/4/5/",
+			want: true,
+		},
+		{
+			url:  "http://a.b.c.d.e.f.g.h.i/",
+			want: true,
+		},
+		{
+			url:  "http://a.b.c.d.e/1.html",
+			want: true,
+		},
+		{
+			url:  "http://b.c/1/2/3.html?param=1/2",
+			want: true,
+		},
+		{
+			url:  "http://a.b/?",
+			want: true,
+		},
+		{
+			url:  "http://[2001:470:1:18::114]/a/b",
+			want: true,
+		},
+		{
+			url:  "http://1.2.3.4/a/b",
+			want: true,
+		},
+		{
+			url:  "http://a.b/",
+			want: true,
+		},
+		{
+			url:  "http://b/",
+			want: true,
+		},
+		{
+			url:  "https://a.b.c.d.e.f.g.h.i/",
+			want: true,
+		},
+		{
+			url:  "a.b.c.d.e.f.g.h.i/",
+			want: true,
+		},
+		{
+			url:  "[2001:470:1:18::114]/a/b",
+			want: true,
+		},
+		{
+			url:  "/asdf",
+			want: false,
+		},
+	}
+
+	for _, v := range vectors {
+		got := IsURL(v.url)
+		if got != v.want {
+			u, _ := parseURL(v.url)
+			t.Errorf("IsURL(%s) = %t, want %t, %+v", v.url, got, v.want, *u)
+		}
+	}
+}
+
 func TestGeneratePatterns(t *testing.T) {
 	vectors := []struct {
 		url    string
