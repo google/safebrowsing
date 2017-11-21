@@ -47,8 +47,9 @@ type netAPI struct {
 
 // newNetAPI creates a new netAPI object pointed at the provided root URL.
 // For every request, it will use the provided API key.
+// If a proxy URL is given, it will be used in place of the default $HTTP_PROXY.
 // If the protocol is not specified in root, then this defaults to using HTTPS.
-func newNetAPI(root string, key string) (*netAPI, error) {
+func newNetAPI(root string, key string, proxy string) (*netAPI, error) {
 	if !strings.Contains(root, "://") {
 		root = "https://" + root
 	}
@@ -57,11 +58,21 @@ func newNetAPI(root string, key string) (*netAPI, error) {
 		return nil, err
 	}
 
+	httpClient := &http.Client{}
+
+	if proxy != "" {
+		proxyUrl, err := url.Parse(proxy)
+		if err != nil {
+			return nil, err
+		}
+		httpClient = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyUrl)}}
+	}
+
 	q := u.Query()
 	q.Set("key", key)
 	q.Set("alt", "proto")
 	u.RawQuery = q.Encode()
-	return &netAPI{url: u, client: &http.Client{}}, nil
+	return &netAPI{url: u, client: httpClient}, nil
 }
 
 // doRequests performs a POST to requestPath. It uses the marshaled form of req

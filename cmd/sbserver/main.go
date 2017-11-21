@@ -222,6 +222,7 @@ const (
 var (
 	apiKeyFlag   = flag.String("apikey", "", "specify your Safe Browsing API key")
 	srvAddrFlag  = flag.String("srvaddr", "localhost:8080", "TCP network address the HTTP server should use")
+	proxyFlag    = flag.String("proxy", os.Getenv("HTTP_PROXY"), "proxy to use to connect to the HTTP server")
 	databaseFlag = flag.String("db", "", "path to the Safe Browsing database.")
 )
 
@@ -504,9 +505,10 @@ func main() {
 		os.Exit(1)
 	}
 	conf := safebrowsing.Config{
-		APIKey: *apiKeyFlag,
-		DBPath: *databaseFlag,
-		Logger: os.Stderr,
+		APIKey:   *apiKeyFlag,
+		ProxyURL: *proxyFlag,
+		DBPath:   *databaseFlag,
+		Logger:   os.Stderr,
 	}
 	sb, err := safebrowsing.NewSafeBrowser(conf)
 	if err != nil {
