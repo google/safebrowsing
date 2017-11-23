@@ -42,7 +42,7 @@ var (
 	apiKeyFlag    = flag.String("apikey", "", "specify your Safe Browsing API key")
 	databaseFlag  = flag.String("db", "", "path to the Safe Browsing database. By default persistent storage is disabled (not recommended).")
 	serverURLFlag = flag.String("server", safebrowsing.DefaultServerURL, "Safebrowsing API server address.")
-	proxyFlag     = flag.String("proxy", os.Getenv("HTTP_PROXY"), "proxy to use to connect to the HTTP server")
+	proxyFlag     = flag.String("proxy", "", "proxy to use to connect to the HTTP server")
 )
 
 const usage = `sblookup: command-line tool to lookup URLs with Safe Browsing.
