@@ -34,7 +34,7 @@ func TestNetworkAPIUpdate(t *testing.T) {
 		t.Skip()
 	}
 
-	nm, err := newNetAPI(DefaultServerURL, *apiKeyFlag)
+	nm, err := newNetAPI(DefaultServerURL, *apiKeyFlag, "")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestNetworkAPILookup(t *testing.T) {
 		t.Skip()
 	}
 
-	nm, err := newNetAPI(DefaultServerURL, *apiKeyFlag)
+	nm, err := newNetAPI(DefaultServerURL, *apiKeyFlag, "")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}

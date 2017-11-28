@@ -185,6 +185,10 @@ type Config struct {
 	// If empty, it defaults to DefaultServerURL.
 	ServerURL string
 
+	// ProxyURL is the URL of the proxy to use for all requests.
+	// If empty, the underlying library uses $HTTP_PROXY environment variable.
+	ProxyURL string
+
 	// APIKey is the key used to authenticate with the Safe Browsing API
 	// service. This field is required.
 	APIKey string
@@ -298,7 +302,7 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 	// Create the SafeBrowsing object.
 	if conf.api == nil {
 		var err error
-		conf.api, err = newNetAPI(conf.ServerURL, conf.APIKey)
+		conf.api, err = newNetAPI(conf.ServerURL, conf.APIKey, conf.ProxyURL)
 		if err != nil {
 			return nil, err
 		}

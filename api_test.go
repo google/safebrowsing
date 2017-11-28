@@ -61,7 +61,7 @@ func TestNetAPI(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	api, err := newNetAPI(ts.URL, "fizzbuzz")
+	api, err := newNetAPI(ts.URL, "fizzbuzz", "")
 	if err != nil {
 		t.Errorf("unexpected newNetAPI error: %v", err)
 	}
