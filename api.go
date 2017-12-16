@@ -17,15 +17,23 @@ package safebrowsing
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
 
 	"github.com/golang/protobuf/proto"
+)
+
+const (
+	maxRetryDelay  = 24 * time.Hour
+	baseRetryDelay = 15 * time.Minute
 )
 
 const (
@@ -41,8 +49,10 @@ type api interface {
 
 // netAPI is an api object that talks to the server over HTTP.
 type netAPI struct {
-	client *http.Client
-	url    *url.URL
+	client          *http.Client
+	url             *url.URL
+	backOffMode     bool
+	updateAPIErrors uint
 }
 
 // newNetAPI creates a new netAPI object pointed at the provided root URL.
@@ -72,13 +82,17 @@ func newNetAPI(root string, key string, proxy string) (*netAPI, error) {
 	q.Set("key", key)
 	q.Set("alt", "proto")
 	u.RawQuery = q.Encode()
-	return &netAPI{url: u, client: httpClient}, nil
+	return &netAPI{url: u, client: httpClient, backOffMode: false}, nil
 }
 
 // doRequests performs a POST to requestPath. It uses the marshaled form of req
 // as the request body payload, and automatically unmarshals the response body
 // payload as resp.
 func (a *netAPI) doRequest(ctx context.Context, requestPath string, req proto.Message, resp proto.Message) error {
+	if a.backOffMode {
+		return errors.New("API in back-off mode, refusing to execute")
+	}
+
 	p, err := proto.Marshal(req)
 	if err != nil {
 		return err
@@ -95,8 +109,25 @@ func (a *netAPI) doRequest(ctx context.Context, requestPath string, req proto.Me
 	}
 	defer httpResp.Body.Close()
 	if httpResp.StatusCode != 200 {
+		// Non 200 response, we shall enter back-off mode
+		a.backOffMode = true
+		go func(a *netAPI) {
+			// Backoff strategy: MIN((2**N-1 * 15 minutes) * (RAND + 1), 24 hours)
+			n := 1 << a.updateAPIErrors
+			delay := time.Duration(float64(n) * (rand.Float64() + 1) * float64(baseRetryDelay))
+			if delay > maxRetryDelay {
+				delay = maxRetryDelay
+			}
+			a.updateAPIErrors++
+			time.Sleep(delay)
+			a.backOffMode = false
+		}(a)
+
 		return fmt.Errorf("safebrowsing: unexpected server response code: %d", httpResp.StatusCode)
 	}
+
+	a.updateAPIErrors = 0
+
 	body, err := ioutil.ReadAll(httpResp.Body)
 	if err != nil {
 		return err
