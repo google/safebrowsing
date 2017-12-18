@@ -552,38 +552,15 @@ func TestDatabaseUpdate(t *testing.T) {
 		t.Fatalf("update 5, database state mismatch:\ngot  %+v\nwant %+v", gotDB, wantDB)
 	}
 
-	// Update 6: api is broken for some unknown reason. Checks the backoff
+	// Update 6: api is broken for some unknown reason. Checks retrial delay.
 	errResponse = errors.New("Something broke")
 	delay, updated = db.Update(context.Background(), mockAPI)
 	if db.err == nil || updated {
 		t.Fatalf("update 6, unexpected update success")
 	}
-	minDelay := baseRetryDelay.Seconds() * float64(1) * float64(1)
-	maxDelay := baseRetryDelay.Seconds() * float64(2) * float64(1)
-	if delay.Seconds() < minDelay || delay.Seconds() > maxDelay {
-		t.Fatalf("update 6, Expected delay %v to be between %v and %v", delay.Seconds(), minDelay, maxDelay)
-	}
-
-	// Update 7: api is still broken, check backoff is larger
-	delay, updated = db.Update(context.Background(), mockAPI)
-	if db.err == nil || updated {
-		t.Fatalf("update 7, unexpected update success")
-	}
-	minDelay = baseRetryDelay.Seconds() * float64(1) * float64(2)
-	maxDelay = baseRetryDelay.Seconds() * float64(2) * float64(2)
-	if delay.Seconds() < minDelay || delay.Seconds() > maxDelay {
-		t.Fatalf("update 7, Expected delay %v to be between %v and %v", delay.Seconds(), minDelay, maxDelay)
-	}
-
-	// Update 8: api is still broken, check that backoff is larger than before
-	delay, updated = db.Update(context.Background(), mockAPI)
-	if db.err == nil || updated {
-		t.Fatalf("update 8, unexpected update success")
-	}
-	minDelay = baseRetryDelay.Seconds() * float64(1) * float64(4)
-	maxDelay = baseRetryDelay.Seconds() * float64(2) * float64(4)
-	if delay.Seconds() < minDelay || delay.Seconds() > maxDelay {
-		t.Fatalf("update 8, Expected delay %v to be between %v and %v", delay.Seconds(), minDelay, maxDelay)
+	expectedDelay = 1 * time.Minute
+	if delay != expectedDelay {
+		t.Fatalf("update 6, Expected delay %v to be %v", delay.Seconds(), expectedDelay.Seconds)
 	}
 }
 
