@@ -19,7 +19,7 @@
 // If an error occurred, debug information may be printed to STDERR.
 //
 // To build the tool:
-//	$ go get github.com/teamnsrg/safebrowing/cmd/sblookup
+//	$ go get github.com/teamnsrg/safebrowsing/cmd/sblookup
 //
 // Example usage:
 //	$ sblookup -apikey $APIKEY

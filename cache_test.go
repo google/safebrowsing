@@ -20,7 +20,7 @@ import (
 	"time"
 
 	dpb "github.com/golang/protobuf/ptypes/duration"
-	pb "github.com/teamnsrg/safebrowing/internal/safebrowsing_proto"
+	pb "github.com/teamnsrg/safebrowsing/internal/safebrowsing_proto"
 )
 
 func TestCacheLookup(t *testing.T) {
