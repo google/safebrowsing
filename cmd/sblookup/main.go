@@ -19,7 +19,7 @@
 // If an error occurred, debug information may be printed to STDERR.
 //
 // To build the tool:
-//	$ go get github.com/google/safebrowsing/cmd/sblookup
+//	$ go get github.com/teamnsrg/safebrowing/cmd/sblookup
 //
 // Example usage:
 //	$ sblookup -apikey $APIKEY
@@ -35,7 +35,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/google/safebrowsing"
+	"github.com/teamnsrg/safebrowsing"
 )
 
 var (

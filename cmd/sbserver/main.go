@@ -198,12 +198,12 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/google/safebrowsing"
-	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
+	"github.com/teamnsrg/safebrowing"
+	pb "github.com/teamnsrg/safebrowing/internal/safebrowsing_proto"
 
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
-	_ "github.com/google/safebrowsing/cmd/sbserver/statik"
+	_ "github.com/teamnsrg/safebrowing/cmd/sbserver/statik"
 	"github.com/rakyll/statik/fs"
 )
 

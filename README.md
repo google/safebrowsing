@@ -28,7 +28,7 @@ documentation.
 To download and install from the source, run the following command:
 
 ```
-go get github.com/google/safebrowsing
+go get github.com/teamnsrg/safebrowing
 ```
 
 The programs below execute from your `$GOPATH/bin` folder. 
@@ -50,7 +50,7 @@ shows warnings recommended by Safe Browsing.
 key:
 
 	```
-	go get github.com/google/safebrowsing/cmd/sbserver
+	go get github.com/teamnsrg/safebrowing/cmd/sbserver
 	sbserver -apikey $APIKEY
 	```
 
@@ -91,7 +91,7 @@ Browsing library can be used to protect users from unsafe URLs. This
 command-line tool filters unsafe URLs piped via STDIN. Example usage:
 
 ```
-$ go get github.com/google/safebrowsing/cmd/sblookup
+$ go get github.com/teamnsrg/safebrowing/cmd/sblookup
 $ echo "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/" | sblookup -apikey=$APIKEY
   Unsafe URL found:  http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/ [{testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/ {MALWARE ANY_PLATFORM URL}}]
 ```
@@ -102,5 +102,5 @@ To perform an end-to-end test on the package with the Safe Browsing backend,
 run the following command:
 
 ```
-go test github.com/google/safebrowsing -v -run TestSafeBrowser -apikey $APIKEY
+go test github.com/teamnsrg/safebrowing -v -run TestSafeBrowser -apikey $APIKEY
 ```
