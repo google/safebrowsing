@@ -23,9 +23,8 @@ import (
 	"net/url"
 	"strings"
 
-	pb "github.com/teamnsrg/safebrowing/internal/safebrowsing_proto"
-
 	"github.com/golang/protobuf/proto"
+	pb "github.com/teamnsrg/safebrowsing/internal/safebrowsing_proto"
 )
 
 const (
