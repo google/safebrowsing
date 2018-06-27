@@ -1,2 +1,10 @@
 # IDE config
 .idea
+
+# local testing stuff
+.zzma
+
+# locally built executables
+cmd/sblookup/sblookup
+cmd/sbserver/sbserver
+
