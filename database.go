@@ -234,8 +234,7 @@ func (db *database) Update(ctx context.Context, api api) (time.Duration, bool) {
 	}
 	db.updateAPIErrors = 0
 
-	// add jitter to wait time to avoid all servers lining up
-	nextUpdateWait := db.config.UpdatePeriod + time.Duration(rand.Int31n(60)-30)*time.Second
+	nextUpdateWait := db.config.UpdatePeriod
 	if resp.MinimumWaitDuration != nil {
 		serverMinWait := time.Duration(resp.MinimumWaitDuration.Seconds)*time.Second + time.Duration(resp.MinimumWaitDuration.Nanos)
 		if serverMinWait > nextUpdateWait {
@@ -243,6 +242,7 @@ func (db *database) Update(ctx context.Context, api api) (time.Duration, bool) {
 			db.log.Printf("Server requested next update in %v", nextUpdateWait)
 		}
 	}
+
 	if len(resp.ListUpdateResponses) != numTypes {
 		db.setError(errors.New("safebrowsing: threat list count mismatch"))
 		db.log.Printf("invalid server response: got %d, want %d threat lists",
