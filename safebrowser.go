@@ -81,6 +81,8 @@ import (
 	"time"
 
 	pb "github.com/teamnsrg/safebrowsing/internal/safebrowsing_proto"
+	"os"
+	"path/filepath"
 )
 
 const (
@@ -224,6 +226,12 @@ type Config struct {
 	// If empty, no logs will be written.
 	Logger io.Writer
 
+	// Archive historical databases
+	DatabaseArchive bool
+
+	// Directory for archiving historical databases
+	DatabaseArchiveDirectory string
+
 	// compressionTypes indicates how the threat entry sets can be compressed.
 	compressionTypes []pb.CompressionType
 
@@ -249,6 +257,15 @@ func (c *Config) setDefaults() bool {
 	if c.compressionTypes == nil {
 		c.compressionTypes = []pb.CompressionType{pb.CompressionType_RAW, pb.CompressionType_RICE}
 	}
+	if c.DatabaseArchive && c.DatabaseArchiveDirectory == "" {
+		ex, err := os.Executable()
+		if err != nil {
+			panic(err)
+		}
+		exPath := filepath.Dir(ex)
+		c.DatabaseArchiveDirectory = exPath + "/.sb_archive"
+	}
+
 	return true
 }
 
