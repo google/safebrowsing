@@ -227,10 +227,10 @@ type Config struct {
 	Logger io.Writer
 
 	// Archive historical databases
-	DatabaseArchive bool
+	DBArchive bool
 
 	// Directory for archiving historical databases
-	DatabaseArchiveDirectory string
+	DBArchiveDirectory string
 
 	// compressionTypes indicates how the threat entry sets can be compressed.
 	compressionTypes []pb.CompressionType
@@ -257,13 +257,13 @@ func (c *Config) setDefaults() bool {
 	if c.compressionTypes == nil {
 		c.compressionTypes = []pb.CompressionType{pb.CompressionType_RAW, pb.CompressionType_RICE}
 	}
-	if c.DatabaseArchive && c.DatabaseArchiveDirectory == "" {
+	if c.DBArchive && c.DBArchiveDirectory == "" {
 		ex, err := os.Executable()
 		if err != nil {
 			panic(err)
 		}
 		exPath := filepath.Dir(ex)
-		c.DatabaseArchiveDirectory = exPath + "/.sb_archive"
+		c.DBArchiveDirectory = exPath + "/.sb_archive"
 	}
 
 	return true
@@ -314,6 +314,11 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 	conf = conf.copy()
 	if !conf.setDefaults() {
 		return nil, errors.New("safebrowsing: invalid configuration")
+	}
+
+	// Create archive directory if it doesn't exist
+	if _, err := os.Stat(conf.DBArchiveDirectory); os.IsNotExist(err) {
+		os.MkdirAll(conf.DBArchiveDirectory, os.ModePerm)
 	}
 
 	// Create the SafeBrowsing object.

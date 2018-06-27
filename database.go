@@ -27,6 +27,7 @@ import (
 	"time"
 
 	pb "github.com/teamnsrg/safebrowsing/internal/safebrowsing_proto"
+	"path/filepath"
 )
 
 // jitter is the maximum amount of time that we expect an API list update to
@@ -264,6 +265,13 @@ func (db *database) Update(ctx context.Context, api api) (time.Duration, bool) {
 		dbf.Table[td] = phs
 	}
 	db.generateThreatsForLookups(last)
+
+	if db.config.DBArchive {
+		filename := db.config.now().UTC().Format(time.RFC3339) + ".db"
+		if err := saveDatabase(filepath.Join(db.config.DBArchiveDirectory, filename), dbf); err != nil {
+			db.log.Printf("save failure: %v", err)
+		}
+	}
 
 	// Regenerate the database and store it.
 	if db.config.DBPath != "" {
