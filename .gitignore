@@ -7,4 +7,5 @@
 # locally built executables
 cmd/sblookup/sblookup
 cmd/sbserver/sbserver
+cmd/sbdownload/sbdownload
 
