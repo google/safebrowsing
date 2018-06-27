@@ -180,6 +180,7 @@ import (
 
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
+	"time"
 )
 
 const (
@@ -420,13 +421,14 @@ func main() {
 		os.Exit(1)
 	}
 	conf := safebrowsing.Config{
-		APIKey:          *apiKeyFlag,
-		ProxyURL:        *proxyFlag,
-		DBPath:          *databaseFlag,
-		Logger:          os.Stderr,
-		ID:              *clientFlag,
-		Version:         *versionFlag,
-		DatabaseArchive: true,
+		APIKey:       *apiKeyFlag,
+		ProxyURL:     *proxyFlag,
+		DBPath:       *databaseFlag,
+		Logger:       os.Stderr,
+		ID:           *clientFlag,
+		Version:      *versionFlag,
+		DBArchive:    true,
+		UpdatePeriod: 1 * time.Minute,
 	}
 	sb, err := safebrowsing.NewSafeBrowser(conf)
 	if err != nil {
