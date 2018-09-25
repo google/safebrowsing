@@ -42,12 +42,9 @@ export PATH=$PATH:$GOPATH/bin
 # Proxy Server
 
 The `sbserver` server binary runs a Safe Browsing API lookup proxy that allows
-users to check URLs via a simple JSON API. The server also runs an URL
-redirector to show an interstitial for anything marked unsafe. The interstitial
-shows warnings recommended by Safe Browsing.
+users to check URLs via a simple JSON API.
 
-1.	Once the Go environment is setup, run the following command with your API
-key:
+1.	Once the Go environment is setup, run the following command with your API key:
 
 	```
 	go get github.com/google/safebrowsing/cmd/sbserver
@@ -56,7 +53,9 @@ key:
 
 	With the default settings this will start a local server at **127.0.0.1:8080**.
 
-2.  Load the proxy server redirector in any web browser. Try these URLs:
+2.  The server also uses an URL redirector (listening on `/r`) to show an interstitial for anything marked unsafe.  
+If the URL is safe, the client is automatically redirected to the target. Else, an interstitial warning page is shown as recommended by Safe Browsing.  
+Try these URLs:
 
 	```
 	127.0.0.1:8080/r?url=http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/
@@ -65,12 +64,15 @@ key:
 	127.0.0.1:8080/r?url=http://www.google.com/
 	```
 
-3.	To use the local proxy server to check a URL, send a POST request with the
-following JSON body:
+3.	The server also has a lightweight implementation of the API v4 threatMatches endpoint.  
+To use the local proxy server to check a URL, send a POST request to `127.0.0.1:8080/v4/threatMatches:find` with the following JSON body:
 
 	```json
 	{
 		"threatInfo": {
+			"threatTypes":      ["UNWANTED_SOFTWARE", "MALWARE"],
+			"platformTypes":    ["ANY_PLATFORM"],
+			"threatEntryTypes": ["URL"],
 			"threatEntries": [
 				{"url": "google.com"},
 				{"url": "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/"}
@@ -79,9 +81,7 @@ following JSON body:
 	}
 	```
 
-	Refer to the [Google Safe Browsing APIs (v4)]
-	(https://developers.google.com/safe-browsing/v4/)
-	for the format of the JSON request.
+	Refer to the [Google Safe Browsing APIs (v4)](https://developers.google.com/safe-browsing/v4/) for the format of the JSON request.
 
 
 # Command-Line Lookup
