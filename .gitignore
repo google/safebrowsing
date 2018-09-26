@@ -1,5 +1,6 @@
 # IDE config
 .idea
+*.iml
 
 # local testing stuff
 .zzma
