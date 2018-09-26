@@ -166,49 +166,23 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
-	"net/http"
 	"os"
 
 	"github.com/teamnsrg/safebrowsing"
-	pb "github.com/teamnsrg/safebrowsing/internal/safebrowsing_proto"
-
-	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/proto"
 	"time"
 )
 
-const (
-	statusPath         = "/status"
-	findThreatPath     = "/v4/threatMatches:find"
-	getThreatListsPath = "/v4/threatLists"
-)
-
-const (
-	mimeJSON  = "application/json"
-	mimeProto = "application/x-protobuf"
-)
-
 var (
-	apiKeyFlag   = flag.String("apikey", "", "specify your Safe Browsing API key")
-	srvAddrFlag  = flag.String("srvaddr", "localhost:8080", "TCP network address the HTTP server should use")
-	proxyFlag    = flag.String("proxy", "", "proxy to use to connect to the HTTP server")
-	databaseFlag = flag.String("db", "safebrowsing.db", "path to the Safe Browsing database")
-	clientFlag   = flag.String("client", "UniversityOfIllinoisSPRAIResearch", "client name")
-	versionFlag  = flag.String("version", "1.0.0", "client version")
+	apiKeyFlag          = flag.String("apikey", "", "specify your Safe Browsing API key")
+	srvAddrFlag         = flag.String("srvaddr", "localhost:8080", "TCP network address the HTTP server should use")
+	proxyFlag           = flag.String("proxy", "", "proxy to use to connect to the HTTP server")
+	databaseFlag        = flag.String("db", "safebrowsing.db", "path to the Safe Browsing database")
+	databaseArchiveFlag = flag.String("dba", ".sb_archive", "path to the Safe Browsing database archive")
+	clientFlag          = flag.String("client", "UniversityOfIllinoisSPRAIResearch", "client name")
+	versionFlag         = flag.String("version", "1.0.0", "client version")
 )
-
-var threatTemplate = map[safebrowsing.ThreatType]string{
-	safebrowsing.ThreatType_Malware:                       "/malware.tmpl",
-	safebrowsing.ThreatType_PotentiallyHarmfulApplication: "/malware.tmpl",
-	safebrowsing.ThreatType_UnwantedSoftware:              "/unwanted.tmpl",
-	safebrowsing.ThreatType_SocialEngineering:             "/social_engineering.tmpl",
-}
 
 const usage = `sbserver: starts a Safe Browsing API proxy server.
 
@@ -224,192 +198,6 @@ Usage: %s -apikey=$APIKEY
 
 `
 
-// unmarshal reads pbResp from req. The mime will either be JSON or ProtoBuf.
-func unmarshal(req *http.Request, pbReq proto.Message) (string, error) {
-	var mime string
-	alt := req.URL.Query().Get("alt")
-	if alt == "" {
-		alt = req.Header.Get("Content-Type")
-	}
-	switch alt {
-	case "json", mimeJSON:
-		mime = mimeJSON
-	case "proto", mimeProto:
-		mime = mimeProto
-	default:
-		return mime, errors.New("invalid interchange format")
-	}
-
-	switch req.Header.Get("Content-Type") {
-	case mimeJSON:
-		if err := jsonpb.Unmarshal(req.Body, pbReq); err != nil {
-			return mime, err
-		}
-	case mimeProto:
-		body, err := ioutil.ReadAll(req.Body)
-		if err != nil {
-			return mime, err
-		}
-		if err := proto.Unmarshal(body, pbReq); err != nil {
-			return mime, err
-		}
-	}
-	return mime, nil
-}
-
-// marshal writes pbResp into resp. The mime can either be JSON or ProtoBuf.
-func marshal(resp http.ResponseWriter, pbResp proto.Message, mime string) error {
-	resp.Header().Set("Content-Type", mime)
-	switch mime {
-	case mimeProto:
-		body, err := proto.Marshal(pbResp)
-		if err != nil {
-			return err
-		}
-		if _, err := resp.Write(body); err != nil {
-			return err
-		}
-	case mimeJSON:
-		var m jsonpb.Marshaler
-		var b bytes.Buffer
-		if err := m.Marshal(&b, pbResp); err != nil {
-			return err
-		}
-		if _, err := resp.Write(b.Bytes()); err != nil {
-			return err
-		}
-	default:
-		return errors.New("invalid interchange format")
-	}
-	return nil
-}
-
-// serveStatus writes a simple JSON with server status information to resp.
-func serveStatus(resp http.ResponseWriter, req *http.Request, sb *safebrowsing.SafeBrowser) {
-	stats, sbErr := sb.Status()
-	errStr := ""
-	if sbErr != nil {
-		errStr = sbErr.Error()
-	}
-	buf, err := json.Marshal(struct {
-		Stats safebrowsing.Stats
-		Error string
-	}{stats, errStr})
-	if err != nil {
-		http.Error(resp, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	resp.Header().Set("Content-Type", mimeJSON)
-	resp.Write(buf)
-}
-
-// serveLookups is a light-weight implementation of the "/v4/threatMatches:find"
-// API endpoint. This allows clients to look up whether a given URL is safe.
-// Unlike the official API, it does not require an API key.
-// It supports both JSON and ProtoBuf.
-func serveLookups(resp http.ResponseWriter, req *http.Request, sb *safebrowsing.SafeBrowser) {
-	if req.Method != "POST" {
-		http.Error(resp, "invalid method", http.StatusBadRequest)
-		return
-	}
-
-	// Decode the request message.
-	pbReq := new(pb.FindThreatMatchesRequest)
-	mime, err := unmarshal(req, pbReq)
-	if err != nil {
-		http.Error(resp, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// TODO: Should this handler use the information in threatTypes,
-	// platformTypes, and threatEntryTypes?
-
-	// Parse the request message.
-	var urls []string
-	tes := pbReq.GetThreatInfo().GetThreatEntries()
-	for _, u := range tes {
-		urls = append(urls, u.Url)
-		if u.Url == "" || len(u.Hash) > 0 {
-			http.Error(resp, "only ThreatEntry.Url may be set", http.StatusBadRequest)
-			return
-		}
-	}
-
-	// Lookup the URLs.
-	utss, err := sb.LookupURLsContext(req.Context(), urls)
-	if err != nil {
-		http.Error(resp, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Compose the response message.
-	pbResp := new(pb.FindThreatMatchesResponse)
-	for i, uts := range utss {
-		// Use map to condense duplicate ThreatDescriptor entries.
-		tdm := make(map[safebrowsing.ThreatDescriptor]bool)
-		for _, ut := range uts {
-			tdm[ut.ThreatDescriptor] = true
-		}
-
-		for td := range tdm {
-			tm := &pb.ThreatMatch{
-				Threat:          &pb.ThreatEntry{Url: urls[i]},
-				ThreatType:      pb.ThreatType(td.ThreatType),
-				PlatformType:    pb.PlatformType(td.PlatformType),
-				ThreatEntryType: pb.ThreatEntryType(td.ThreatEntryType),
-			}
-			pbResp.Matches = append(pbResp.Matches, tm)
-		}
-	}
-
-	// Encode the response message.
-	if err := marshal(resp, pbResp, mime); err != nil {
-		http.Error(resp, err.Error(), http.StatusInternalServerError)
-		return
-	}
-}
-
-// serveLists is a light-weight implementation of the "/v4/threatLists"
-// API endpoint. This informs the client of which threat lists are available.
-// Unlike the official API, it does not require an API key.
-// It supports both JSON and ProtoBuf.
-func serveLists(resp http.ResponseWriter, req *http.Request, conf *safebrowsing.Config) {
-	var mime string
-	switch req.URL.Query().Get("alt") {
-	case "", "json":
-		mime = mimeJSON
-	case "proto":
-		mime = mimeProto
-	default:
-		http.Error(resp, "invalid request type", http.StatusBadRequest)
-		return
-	}
-	if req.Method != "GET" {
-		http.Error(resp, "invalid method", http.StatusBadRequest)
-		return
-	}
-
-	tls := safebrowsing.DefaultThreatLists
-	if len(conf.ThreatLists) != 0 {
-		tls = conf.ThreatLists
-	}
-
-	pbResp := new(pb.ListThreatListsResponse)
-	for _, td := range tls {
-		pbResp.ThreatLists = append(pbResp.ThreatLists, &pb.ThreatListDescriptor{
-			ThreatType:      pb.ThreatType(td.ThreatType),
-			PlatformType:    pb.PlatformType(td.PlatformType),
-			ThreatEntryType: pb.ThreatEntryType(td.ThreatEntryType),
-		})
-	}
-
-	// Encode the response message.
-	if err := marshal(resp, pbResp, mime); err != nil {
-		http.Error(resp, err.Error(), http.StatusInternalServerError)
-		return
-	}
-}
-
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, usage, os.Args[0])
@@ -421,14 +209,15 @@ func main() {
 		os.Exit(1)
 	}
 	conf := safebrowsing.Config{
-		APIKey:       *apiKeyFlag,
-		ProxyURL:     *proxyFlag,
-		DBPath:       *databaseFlag,
-		Logger:       os.Stderr,
-		ID:           *clientFlag,
-		Version:      *versionFlag,
-		DBArchive:    true,
-		UpdatePeriod: 1 * time.Minute,
+		APIKey:             *apiKeyFlag,
+		DBPath:             *databaseFlag,
+		ProxyURL:           *proxyFlag,
+		Logger:             os.Stderr,
+		ID:                 *clientFlag,
+		Version:            *versionFlag,
+		DBArchive:          true,
+		DBArchiveDirectory: *databaseArchiveFlag,
+		UpdatePeriod:       5 * time.Minute,
 	}
 	sb, err := safebrowsing.NewSafeBrowser(conf)
 	if err != nil {
@@ -436,20 +225,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	http.HandleFunc(statusPath, func(w http.ResponseWriter, r *http.Request) {
-		serveStatus(w, r, sb)
-	})
-	http.HandleFunc(findThreatPath, func(w http.ResponseWriter, r *http.Request) {
-		serveLookups(w, r, sb)
-	})
-	http.HandleFunc(getThreatListsPath, func(w http.ResponseWriter, r *http.Request) {
-		serveLists(w, r, &conf)
-	})
-
-	fmt.Fprintln(os.Stdout, "Starting server at", *srvAddrFlag)
-	if err := http.ListenAndServe(*srvAddrFlag, nil); err != nil {
-		fmt.Fprintln(os.Stderr, "Server error:", err)
+	select {
+	case <-sb.Done:
+		fmt.Fprintln(os.Stdout, "Stopping downloader")
 		return
 	}
-	fmt.Fprintln(os.Stdout, "Stopping server")
+
 }

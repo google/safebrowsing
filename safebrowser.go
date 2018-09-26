@@ -91,7 +91,7 @@ const (
 
 	// DefaultUpdatePeriod is the default period for how often SafeBrowser will
 	// reload its blacklist database.
-	DefaultUpdatePeriod = 30 * time.Minute
+	DefaultUpdatePeriod = 5 * time.Minute
 
 	// DefaultID and DefaultVersion are the default client ID and Version
 	// strings to send with every API call.
@@ -294,7 +294,7 @@ type SafeBrowser struct {
 	log *log.Logger
 
 	closed uint32
-	done   chan bool // Signals that the updater routine should stop
+	Done   chan bool // Signals that the updater routine should stop
 }
 
 // Stats records statistics regarding SafeBrowser's operation.
@@ -354,21 +354,12 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 	}
 	sb.log = log.New(w, "safebrowsing: ", log.Ldate|log.Ltime|log.Lshortfile)
 
-	delay := time.Duration(0)
 	// If database file is provided, use that to initialize.
-	if !sb.db.Init(&sb.config, sb.log) {
-		ctx, cancel := context.WithTimeout(context.Background(), sb.config.RequestTimeout)
-		delay, _ = sb.db.Update(ctx, sb.api)
-		cancel()
-	} else {
-		if age := sb.db.SinceLastUpdate(); age < sb.config.UpdatePeriod {
-			delay = sb.config.UpdatePeriod - age
-		}
-	}
+	sb.db.Init(&sb.config, sb.log)
 
 	// Start the background list updater.
-	sb.done = make(chan bool)
-	go sb.updater(delay)
+	sb.Done = make(chan bool)
+	go sb.updater(0)
 	return sb, nil
 }
 
@@ -399,7 +390,7 @@ func (sb *SafeBrowser) WaitUntilReady(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-sb.done:
+	case <-sb.Done:
 		return errClosed
 	}
 }
@@ -581,7 +572,7 @@ func (sb *SafeBrowser) updater(delay time.Duration) {
 			}
 			cancel()
 
-		case <-sb.done:
+		case <-sb.Done:
 			return
 		}
 	}
@@ -592,7 +583,7 @@ func (sb *SafeBrowser) updater(delay time.Duration) {
 func (sb *SafeBrowser) Close() error {
 	if atomic.LoadUint32(&sb.closed) == 0 {
 		atomic.StoreUint32(&sb.closed, 1)
-		close(sb.done)
+		close(sb.Done)
 	}
 	return nil
 }
