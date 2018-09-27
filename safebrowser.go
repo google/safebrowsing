@@ -80,8 +80,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"fmt"
 	pb "github.com/teamnsrg/safebrowsing/internal/safebrowsing_proto"
 	"os"
+	"path"
 	"path/filepath"
 )
 
@@ -235,6 +237,9 @@ type Config struct {
 	// compressionTypes indicates how the threat entry sets can be compressed.
 	compressionTypes []pb.CompressionType
 
+	// DBDir is a path to the archive folder where all the database files are kept.
+	DBDir string
+
 	api api
 	now func() time.Time
 }
@@ -357,9 +362,8 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 	// If database file is provided, use that to initialize.
 	sb.db.Init(&sb.config, sb.log)
 
-	// Start the background list updater.
 	sb.Done = make(chan bool)
-	go sb.updater(0)
+	go sb.update()
 	return sb, nil
 }
 
@@ -571,11 +575,22 @@ func (sb *SafeBrowser) updater(delay time.Duration) {
 				sb.c.Purge()
 			}
 			cancel()
-
 		case <-sb.Done:
 			return
 		}
 	}
+}
+
+func getNewDBPath(dbPath string, archivePath string) (bool, string) {
+	files, err := ioutil.ReadDir(archivePath)
+	if err != nil {
+		fmt.Printf("error in reading archivePath %s\n", archivePath)
+	}
+	mostRecentDB := path.Join(archivePath, files[len(files)-1].Name())
+	if dbPath != mostRecentDB {
+		return true, mostRecentDB
+	}
+	return false, path.Join(archivePath, dbPath)
 }
 
 // Close cleans up all resources.
@@ -586,4 +601,22 @@ func (sb *SafeBrowser) Close() error {
 		close(sb.Done)
 	}
 	return nil
+}
+
+func (sb *SafeBrowser) update() {
+	limiter := time.Tick(10 * time.Second)
+	for {
+		select {
+		case <-limiter:
+			shouldUpdate, newPath := getNewDBPath(sb.config.DBPath, sb.config.DBDir)
+			if shouldUpdate {
+				sb.log.Print("performing a db update for db file ", newPath)
+				sb.config.DBPath = newPath
+				sb.db.Init(&sb.config, sb.log)
+				sb.c.Purge()
+			}
+		case <-sb.Done:
+			return
+		}
+	}
 }
