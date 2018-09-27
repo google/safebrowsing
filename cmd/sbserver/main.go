@@ -495,15 +495,18 @@ func serveRedirector(resp http.ResponseWriter, req *http.Request, sb *safebrowsi
 	http.Error(resp, err.Error(), http.StatusInternalServerError)
 }
 
-func getLastestDBVersion(archivePath string) string {
+func getLatestDBVersion(archivePath string) string {
 	files, err := ioutil.ReadDir(archivePath)
 	if err != nil {
 		fmt.Printf("error in reading archivePath %s\n", archivePath)
 	}
-	if len(files) > 0 {
-		return path.Join(archivePath, files[len(files)-1].Name())
+	if len(files) <= 0 {
+		fmt.Fprintln(os.Stderr, "db directory is empty - aborting")
+		os.Exit(1)
 	}
-	return ""
+
+	return path.Join(archivePath, files[len(files)-1].Name())
+
 }
 
 func main() {
@@ -521,7 +524,7 @@ func main() {
 
 	conf := safebrowsing.Config{
 		ProxyURL: *proxyFlag,
-		DBPath:   getLastestDBVersion(*dbDir),
+		DBPath:   getLatestDBVersion(*dbDir),
 		Logger:   os.Stderr,
 		DBDir:    *dbDir,
 	}
