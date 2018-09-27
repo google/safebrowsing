@@ -80,11 +80,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"fmt"
 	pb "github.com/teamnsrg/safebrowsing/internal/safebrowsing_proto"
 	"os"
-	"path/filepath"
-	"fmt"
 	"path"
+	"path/filepath"
 )
 
 const (
@@ -606,13 +606,17 @@ func (sb *SafeBrowser) Close() error {
 func (sb *SafeBrowser) update() {
 	limiter := time.Tick(10 * time.Second)
 	for {
-		<- limiter
-		shouldUpdate, newPath := getNewDBPath(sb.config.DBPath, sb.config.DBDir)
-		if shouldUpdate {
-			sb.log.Print("performing a db update for db file ", newPath)
-			sb.config.DBPath = newPath
-			sb.db.Init(&sb.config, sb.log)
-			sb.c.Purge()
+		select {
+		case <-limiter:
+			shouldUpdate, newPath := getNewDBPath(sb.config.DBPath, sb.config.DBDir)
+			if shouldUpdate {
+				sb.log.Print("performing a db update for db file ", newPath)
+				sb.config.DBPath = newPath
+				sb.db.Init(&sb.config, sb.log)
+				sb.c.Purge()
+			}
+		case <-sb.Done:
+			return
 		}
 	}
 }
