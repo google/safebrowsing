@@ -1,0 +1,17 @@
+# IDE config
+.idea
+*.iml
+
+# local testing stuff
+.zzma
+
+# locally built executables
+cmd/sblookup/sblookup
+cmd/sbserver/sbserver
+cmd/sbdownload/sbdownload
+
+# safebrowsing database file
+safebrowsing.db
+
+# safebrowsing archives
+.sb_archive
