@@ -80,7 +80,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
+	pb "github.com/teamnsrg/safebrowsing/internal/safebrowsing_proto"
+	"os"
+	"path/filepath"
+	"fmt"
+	"path"
 )
 
 const (
@@ -89,7 +93,7 @@ const (
 
 	// DefaultUpdatePeriod is the default period for how often SafeBrowser will
 	// reload its blacklist database.
-	DefaultUpdatePeriod = 30 * time.Minute
+	DefaultUpdatePeriod = 5 * time.Minute
 
 	// DefaultID and DefaultVersion are the default client ID and Version
 	// strings to send with every API call.
@@ -224,8 +228,17 @@ type Config struct {
 	// If empty, no logs will be written.
 	Logger io.Writer
 
+	// Archive historical databases
+	DBArchive bool
+
+	// Directory for archiving historical databases
+	DBArchiveDirectory string
+
 	// compressionTypes indicates how the threat entry sets can be compressed.
 	compressionTypes []pb.CompressionType
+
+	// DBDir is a path to the archive folder where all the database files are kept.
+	DBDir string
 
 	api api
 	now func() time.Time
@@ -249,6 +262,15 @@ func (c *Config) setDefaults() bool {
 	if c.compressionTypes == nil {
 		c.compressionTypes = []pb.CompressionType{pb.CompressionType_RAW, pb.CompressionType_RICE}
 	}
+	if c.DBArchive && c.DBArchiveDirectory == "" {
+		ex, err := os.Executable()
+		if err != nil {
+			panic(err)
+		}
+		exPath := filepath.Dir(ex)
+		c.DBArchiveDirectory = exPath + "/.sb_archive"
+	}
+
 	return true
 }
 
@@ -277,7 +299,7 @@ type SafeBrowser struct {
 	log *log.Logger
 
 	closed uint32
-	done   chan bool // Signals that the updater routine should stop
+	Done   chan bool // Signals that the updater routine should stop
 }
 
 // Stats records statistics regarding SafeBrowser's operation.
@@ -297,6 +319,11 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 	conf = conf.copy()
 	if !conf.setDefaults() {
 		return nil, errors.New("safebrowsing: invalid configuration")
+	}
+
+	// Create archive directory if it doesn't exist
+	if _, err := os.Stat(conf.DBArchiveDirectory); os.IsNotExist(err) {
+		os.MkdirAll(conf.DBArchiveDirectory, os.ModePerm)
 	}
 
 	// Create the SafeBrowsing object.
@@ -332,21 +359,11 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 	}
 	sb.log = log.New(w, "safebrowsing: ", log.Ldate|log.Ltime|log.Lshortfile)
 
-	delay := time.Duration(0)
 	// If database file is provided, use that to initialize.
-	if !sb.db.Init(&sb.config, sb.log) {
-		ctx, cancel := context.WithTimeout(context.Background(), sb.config.RequestTimeout)
-		delay, _ = sb.db.Update(ctx, sb.api)
-		cancel()
-	} else {
-		if age := sb.db.SinceLastUpdate(); age < sb.config.UpdatePeriod {
-			delay = sb.config.UpdatePeriod - age
-		}
-	}
+	sb.db.Init(&sb.config, sb.log)
 
-	// Start the background list updater.
-	sb.done = make(chan bool)
-	go sb.updater(delay)
+	sb.Done = make(chan bool)
+	go sb.update()
 	return sb, nil
 }
 
@@ -377,7 +394,7 @@ func (sb *SafeBrowser) WaitUntilReady(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-sb.done:
+	case <-sb.Done:
 		return errClosed
 	}
 }
@@ -558,11 +575,22 @@ func (sb *SafeBrowser) updater(delay time.Duration) {
 				sb.c.Purge()
 			}
 			cancel()
-
-		case <-sb.done:
+		case <-sb.Done:
 			return
 		}
 	}
+}
+
+func getNewDBPath(dbPath string, archivePath string) (bool, string) {
+	files, err := ioutil.ReadDir(archivePath)
+	if err != nil {
+		fmt.Printf("error in reading archivePath %s\n", archivePath)
+	}
+	mostRecentDB := path.Join(archivePath, files[len(files)-1].Name())
+	if dbPath != mostRecentDB {
+		return true, mostRecentDB
+	}
+	return false, path.Join(archivePath, dbPath)
 }
 
 // Close cleans up all resources.
@@ -570,7 +598,21 @@ func (sb *SafeBrowser) updater(delay time.Duration) {
 func (sb *SafeBrowser) Close() error {
 	if atomic.LoadUint32(&sb.closed) == 0 {
 		atomic.StoreUint32(&sb.closed, 1)
-		close(sb.done)
+		close(sb.Done)
 	}
 	return nil
+}
+
+func (sb *SafeBrowser) update() {
+	limiter := time.Tick(10 * time.Second)
+	for {
+		<- limiter
+		shouldUpdate, newPath := getNewDBPath(sb.config.DBPath, sb.config.DBDir)
+		if shouldUpdate {
+			sb.log.Print("performing a db update for db file ", newPath)
+			sb.config.DBPath = newPath
+			sb.db.Init(&sb.config, sb.log)
+			sb.c.Purge()
+		}
+	}
 }

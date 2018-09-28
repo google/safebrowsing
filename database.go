@@ -26,7 +26,8 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
+	pb "github.com/teamnsrg/safebrowsing/internal/safebrowsing_proto"
+	"path/filepath"
 )
 
 // jitter is the maximum amount of time that we expect an API list update to
@@ -118,14 +119,7 @@ func (db *database) Init(config *Config, logger *log.Logger) bool {
 		db.setError(err)
 		return false
 	}
-	// Validate that the database threat list stored on disk is not too stale.
-	if db.isStale(dbf.Time) {
-		db.log.Printf("database loaded is stale")
-		db.ml.Lock()
-		defer db.ml.Unlock()
-		db.setStale()
-		return false
-	}
+
 	// Validate that the database threat list stored on disk is at least a
 	// superset of the specified configuration.
 	tfuNew := make(threatsForUpdate)
@@ -153,10 +147,7 @@ func (db *database) Status() error {
 	if db.err != nil {
 		return db.err
 	}
-	if db.isStale(db.last) {
-		db.setStale()
-		return db.err
-	}
+
 	return nil
 }
 
@@ -234,8 +225,7 @@ func (db *database) Update(ctx context.Context, api api) (time.Duration, bool) {
 	}
 	db.updateAPIErrors = 0
 
-	// add jitter to wait time to avoid all servers lining up
-	nextUpdateWait := db.config.UpdatePeriod + time.Duration(rand.Int31n(60)-30)*time.Second
+	nextUpdateWait := db.config.UpdatePeriod
 	if resp.MinimumWaitDuration != nil {
 		serverMinWait := time.Duration(resp.MinimumWaitDuration.Seconds)*time.Second + time.Duration(resp.MinimumWaitDuration.Nanos)
 		if serverMinWait > nextUpdateWait {
@@ -243,6 +233,7 @@ func (db *database) Update(ctx context.Context, api api) (time.Duration, bool) {
 			db.log.Printf("Server requested next update in %v", nextUpdateWait)
 		}
 	}
+
 	if len(resp.ListUpdateResponses) != numTypes {
 		db.setError(errors.New("safebrowsing: threat list count mismatch"))
 		db.log.Printf("invalid server response: got %d, want %d threat lists",
@@ -264,6 +255,13 @@ func (db *database) Update(ctx context.Context, api api) (time.Duration, bool) {
 		dbf.Table[td] = phs
 	}
 	db.generateThreatsForLookups(last)
+
+	if db.config.DBArchive {
+		filename := db.config.now().UTC().Format(time.RFC3339) + ".db"
+		if err := saveDatabase(filepath.Join(db.config.DBArchiveDirectory, filename), dbf); err != nil {
+			db.log.Printf("save failure: %v", err)
+		}
+	}
 
 	// Regenerate the database and store it.
 	if db.config.DBPath != "" {
