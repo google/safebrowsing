@@ -196,16 +196,16 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"os"
-	"path"
 
 	"github.com/teamnsrg/safebrowsing"
 	pb "github.com/teamnsrg/safebrowsing/internal/safebrowsing_proto"
 
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
-	"github.com/rakyll/statik/fs"
 	_ "github.com/teamnsrg/safebrowsing/cmd/sbserver/statik"
+	"os"
+	"github.com/rakyll/statik/fs"
+	"path"
 )
 
 const (
@@ -221,10 +221,11 @@ const (
 )
 
 var (
+	apiKeyFlag   = flag.String("apikey", "", "specify your Safe Browsing API key")
 	srvAddrFlag  = flag.String("srvaddr", "localhost:8080", "TCP network address the HTTP server should use")
 	proxyFlag    = flag.String("proxy", "", "proxy to use to connect to the HTTP server")
 	databaseFlag = flag.String("db", "", "path to the Safe Browsing database.")
-	dbDir        = flag.String("dbdir", "/data1/nsrg/safebrowsing/archive", "path to the Safe Browsing DB Archive")
+	dbDir = flag.String("dbdir", "/data1/nsrg/safebrowsing/archive", "path to the Safe Browsing DB Archive")
 )
 
 var threatTemplate = map[safebrowsing.ThreatType]string{
@@ -500,14 +501,20 @@ func getLatestDBVersion(archivePath string) string {
 	if err != nil {
 		fmt.Printf("error in reading archivePath %s\n", archivePath)
 	}
+<<<<<<< HEAD
 	if len(files) <= 0 {
 		fmt.Fprintln(os.Stderr, "db directory is empty - aborting")
 		os.Exit(1)
+=======
+	if len(files) > 0 {
+		return path.Join(archivePath, files[len(files) - 1].Name())
+>>>>>>> parent of 6c81d93... clean up format, remove unneeded flags, clean up goroutines on close
 	}
 
 	return path.Join(archivePath, files[len(files)-1].Name())
 
 }
+
 
 func main() {
 
@@ -516,17 +523,17 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
-
-	if len(*dbDir) <= 0 {
-		fmt.Fprintln(os.Stderr, "dbDir (-dbdir flag) required")
+	/*
+	if *apiKeyFlag == "" {
+		fmt.Fprintln(os.Stderr, "No -apikey specified")
 		os.Exit(1)
-	}
-
+	}*/
 	conf := safebrowsing.Config{
+		APIKey:   *apiKeyFlag,
 		ProxyURL: *proxyFlag,
 		DBPath:   getLatestDBVersion(*dbDir),
 		Logger:   os.Stderr,
-		DBDir:    *dbDir,
+		DBDir: 	  *dbDir,
 	}
 	sb, err := safebrowsing.NewSafeBrowser(conf)
 	if err != nil {
