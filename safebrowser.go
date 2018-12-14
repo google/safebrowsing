@@ -422,7 +422,7 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 	}
 
 	hashes := make(map[hashPrefix]string)
-	hash2idx := make(map[hashPrefix]int)
+	hash2idxs := make(map[hashPrefix][]int)
 
 	// Construct the follow-up request being made to the server.
 	// In the request, we only ask for partial hashes for privacy reasons.
@@ -447,7 +447,7 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 
 		for fullHash, pattern := range urlhashes {
 			hashes[fullHash] = pattern
-			hash2idx[fullHash] = i
+			hash2idxs[fullHash] = append(hash2idxs[fullHash], i)
 
 			// Lookup in database according to threat list.
 			partialHash, unsureThreats := sb.db.Lookup(fullHash)
@@ -518,7 +518,7 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 				continue
 			}
 			pattern, ok := hashes[fullHash]
-			idx, findidx := hash2idx[fullHash]
+			idxs, findidx := hash2idxs[fullHash]
 			if findidx && ok {
 				td := ThreatDescriptor{
 					ThreatType:      ThreatType(tm.ThreatType),
@@ -528,10 +528,12 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 				if !sb.lists[td] {
 					continue
 				}
-				threats[idx] = append(threats[idx], URLThreat{
-					Pattern:          pattern,
-					ThreatDescriptor: td,
-				})
+				for _, idx := range idxs {
+					threats[idx] = append(threats[idx], URLThreat{
+						Pattern:          pattern,
+						ThreatDescriptor: td,
+					})
+				}
 			}
 		}
 		atomic.AddInt64(&sb.stats.QueriesByAPI, 1)
