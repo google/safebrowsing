@@ -171,15 +171,15 @@ func TestSafeBrowser(t *testing.T) {
 		PlatformType:    pb.PlatformType_ANDROID,
 		ThreatEntryType: pb.ThreatEntryType_URL,
 	}
-	urls := []string{
-		"http://testsafebrowsing.appspot.com/apiv4/" + c.PlatformType.String() + "/" +
-			c.ThreatType.String() + "/" + c.ThreatEntryType.String() + "/",
-	}
+	url := "http://testsafebrowsing.appspot.com/apiv4/" + c.PlatformType.String() + "/" +
+		c.ThreatType.String() + "/" + c.ThreatEntryType.String() + "/"
+
+	urls := []string{url, url + "?q=test"}
 	threats, e := sb.LookupURLs(urls)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(threats[0]) == 0 {
+	if len(threats[0]) == 0 || len(threats[1]) == 0 {
 		t.Errorf("lookupURL failed")
 	}
 
