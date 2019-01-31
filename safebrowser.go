@@ -447,10 +447,7 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 
 		for fullHash, pattern := range urlhashes {
 			hash2idxs[fullHash] = append(hash2idxs[fullHash], i)
-
-			if _, ok := hashes[fullHash]; ok {
-				continue
-			}
+			_, alreadyRequested := hashes[fullHash]
 			hashes[fullHash] = pattern
 
 			// Lookup in database according to threat list.
@@ -483,6 +480,9 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 			default:
 				// The cache knows nothing about this full hash, so we must make
 				// a request for it.
+				if alreadyRequested {
+					continue
+				}
 				for _, td := range unsureThreats {
 					ttm[pb.ThreatType(td.ThreatType)] = true
 					ptm[pb.PlatformType(td.PlatformType)] = true
