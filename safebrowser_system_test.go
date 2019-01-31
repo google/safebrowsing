@@ -179,7 +179,7 @@ func TestSafeBrowser(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(threats[0]) == 0 || len(threats[1]) == 0 {
+	if len(threats[0]) != 1 || len(threats[1]) != 1 {
 		t.Errorf("lookupURL failed")
 	}
 

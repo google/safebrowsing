@@ -446,8 +446,12 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 		}
 
 		for fullHash, pattern := range urlhashes {
-			hashes[fullHash] = pattern
 			hash2idxs[fullHash] = append(hash2idxs[fullHash], i)
+
+			if _, ok := hashes[fullHash]; ok {
+				continue
+			}
+			hashes[fullHash] = pattern
 
 			// Lookup in database according to threat list.
 			partialHash, unsureThreats := sb.db.Lookup(fullHash)
