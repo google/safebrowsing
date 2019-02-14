@@ -19,7 +19,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 
 	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
@@ -88,10 +87,10 @@ func TestNetAPI(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected ListUpdate error: %v", err)
 	}
-	if !reflect.DeepEqual(gotReq, wantReq) {
+	if !proto.Equal(gotReq, wantReq) {
 		t.Errorf("mismatching ListUpdate requests:\ngot  %+v\nwant %+v", gotReq, wantReq)
 	}
-	if !reflect.DeepEqual(gotResp, wantResp) {
+	if !proto.Equal(gotResp, wantResp) {
 		t.Errorf("mismatching ListUpdate responses:\ngot  %+v\nwant %+v", gotResp, wantResp)
 	}
 
@@ -113,10 +112,10 @@ func TestNetAPI(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected HashLookup error: %v", err)
 	}
-	if !reflect.DeepEqual(gotReq, wantReq) {
+	if !proto.Equal(gotReq, wantReq) {
 		t.Errorf("mismatching HashLookup requests:\ngot  %+v\nwant %+v", gotReq, wantReq)
 	}
-	if !reflect.DeepEqual(gotResp, wantResp) {
+	if !proto.Equal(gotResp, wantResp) {
 		t.Errorf("mismatching HashLookup responses:\ngot  %+v\nwant %+v", gotResp, wantResp)
 	}
 
@@ -138,18 +137,5 @@ func TestNetAPI(t *testing.T) {
 	_, err = api.HashLookup(ctx, wantReq.(*pb.FindFullHashesRequest))
 	if err == nil {
 		t.Errorf("unexpected HashLookup success, wanted HTTP request canceled")
-	}
-
-	// Test for detection of incorrect protobufs.
-	wantReq = &pb.FindFullHashesRequest{ThreatInfo: &pb.ThreatInfo{
-		ThreatEntryTypes: []pb.ThreatEntryType{7, 8, 9},
-	}}
-	wantResp = &pb.FetchThreatListUpdatesResponse{ListUpdateResponses: []*pb.FetchThreatListUpdatesResponse_ListUpdateResponse{
-		{ThreatType: 1, PlatformType: 2, ThreatEntryType: 3, ResponseType: 1},
-	}}
-	gotReq = &pb.FindFullHashesRequest{}
-	_, err = api.HashLookup(context.Background(), wantReq.(*pb.FindFullHashesRequest))
-	if err == nil {
-		t.Errorf("unexpected HashLookup success")
 	}
 }
