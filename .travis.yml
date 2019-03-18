@@ -1,10 +1,10 @@
 language: go
 
 go:
-  - "1.8"
   - "1.9"
   - "1.10"
   - "1.11"
+  - "1.12"
 
 script:
   - test -z "$(gofmt -s -l $(find . -name '*.go' -type f -not -path "./vendor/*" -not -name "*.pb.go" -print) | tee /dev/stderr)"
