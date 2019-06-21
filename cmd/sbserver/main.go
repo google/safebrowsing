@@ -194,6 +194,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/ioutil"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -249,35 +250,41 @@ Usage: %s -apikey=$APIKEY
 
 // unmarshal reads pbResp from req. The mime will either be JSON or ProtoBuf.
 func unmarshal(req *http.Request, pbReq proto.Message) (string, error) {
-	var mime string
-	alt := req.URL.Query().Get("alt")
-	if alt == "" {
-		alt = req.Header.Get("Content-Type")
-	}
-	switch alt {
-	case "json", mimeJSON:
-		mime = mimeJSON
-	case "proto", mimeProto:
-		mime = mimeProto
-	default:
-		return mime, errors.New("invalid interchange format")
+	var mimeType string
+	mediaType, _, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	if err != nil {
+		mediaType = req.Header.Get("Content-Type")
 	}
 
-	switch req.Header.Get("Content-Type") {
+	alt := req.URL.Query().Get("alt")
+	if alt == "" {
+		alt = mediaType
+	}
+
+	switch alt {
+	case "json", mimeJSON:
+		mimeType = mimeJSON
+	case "proto", mimeProto:
+		mimeType = mimeProto
+	default:
+		return mimeType, errors.New("invalid interchange format")
+	}
+
+	switch mediaType {
 	case mimeJSON:
 		if err := jsonpb.Unmarshal(req.Body, pbReq); err != nil {
-			return mime, err
+			return mimeType, err
 		}
 	case mimeProto:
 		body, err := ioutil.ReadAll(req.Body)
 		if err != nil {
-			return mime, err
+			return mimeType, err
 		}
 		if err := proto.Unmarshal(body, pbReq); err != nil {
-			return mime, err
+			return mimeType, err
 		}
 	}
-	return mime, nil
+	return mimeType, nil
 }
 
 // marshal writes pbResp into resp. The mime can either be JSON or ProtoBuf.
