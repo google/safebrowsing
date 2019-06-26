@@ -33,8 +33,6 @@ import (
 // actually take. We add this time to the update period time to give some
 // leeway before declaring the database as stale.
 const (
-	maxRetryDelay  = 24 * time.Hour
-	baseRetryDelay = 15 * time.Minute
 	jitter         = 30 * time.Second
 )
 
@@ -72,7 +70,6 @@ type database struct {
 	err             error         // Last error encountered
 	readyCh         chan struct{} // Used for waiting until not in an error state.
 	last            time.Time     // Last time the threat list were synced
-	updateAPIErrors uint          // Number of times we attempted to contact the api and failed
 
 	log *log.Logger
 }
@@ -221,18 +218,12 @@ func (db *database) Update(ctx context.Context, api api) (time.Duration, bool) {
 	last := db.config.now()
 	resp, err := api.ListUpdate(ctx, req)
 	if err != nil {
-		db.log.Printf("ListUpdate failure (%d): %v", db.updateAPIErrors+1, err)
+		db.log.Printf("ListUpdate failure: %v", err)
 		db.setError(err)
-		// backoff strategy: MIN((2**N-1 * 15 minutes) * (RAND + 1), 24 hours)
-		n := 1 << db.updateAPIErrors
-		delay := time.Duration(float64(n) * (rand.Float64() + 1) * float64(baseRetryDelay))
-		if delay > maxRetryDelay {
-			delay = maxRetryDelay
-		}
-		db.updateAPIErrors++
-		return delay, false
+		// Retry updating every minute in case of error. Error cases are handled
+		// by the API itself.
+		return 1 * time.Minute, false
 	}
-	db.updateAPIErrors = 0
 
 	// add jitter to wait time to avoid all servers lining up
 	nextUpdateWait := db.config.UpdatePeriod + time.Duration(rand.Int31n(60)-30)*time.Second
