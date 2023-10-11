@@ -1,21 +1,20 @@
 # github.com/golang/protobuf v1.2.0
-github.com/golang/protobuf/proto
-github.com/golang/protobuf/protoc-gen-go
+## explicit
 github.com/golang/protobuf/jsonpb
+github.com/golang/protobuf/proto
 github.com/golang/protobuf/ptypes/duration
-github.com/golang/protobuf/protoc-gen-go/generator
-github.com/golang/protobuf/protoc-gen-go/grpc
 github.com/golang/protobuf/ptypes/struct
-github.com/golang/protobuf/protoc-gen-go/descriptor
-github.com/golang/protobuf/protoc-gen-go/generator/internal/remap
-github.com/golang/protobuf/protoc-gen-go/plugin
 # github.com/rakyll/statik v0.1.5
-github.com/rakyll/statik
+## explicit
 github.com/rakyll/statik/fs
-# golang.org/x/net v0.0.0-20190213061140-3a22650c66bd
+# golang.org/x/net v0.17.0
+## explicit; go 1.17
 golang.org/x/net/idna
-# golang.org/x/text v0.3.0
+# golang.org/x/sync v0.0.0-20181221193216-37e7f081c4d4
+## explicit
+# golang.org/x/text v0.13.0
+## explicit; go 1.17
 golang.org/x/text/secure/bidirule
+golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
-golang.org/x/text/transform
