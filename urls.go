@@ -299,6 +299,10 @@ func parseURL(urlStr string) (parsedURL *url.URL, err error) {
 	rest = strings.Replace(rest, "\t", "", -1)
 	rest = strings.Replace(rest, "\r", "", -1)
 	rest = strings.Replace(rest, "\n", "", -1)
+	// Explicitly normalize backslashes to forward slashes as mandated by the v4 canonicalization spec.
+	// This prevents path fragments from being improperly attached to the parsing host boundary.
+	rest = strings.Replace(rest, "\\", "/", -1)
+
 	rest, err = normalizeEscape(rest)
 	if err != nil {
 		return nil, err
