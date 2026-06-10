@@ -17,12 +17,11 @@ package safebrowsing
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/base64"
 	"errors"
 	"io"
 	"sort"
 	"strings"
-
-	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
 )
 
 const (
@@ -153,71 +152,25 @@ func (hs *hashSet) Lookup(h hashPrefix) int {
 	return 0
 }
 
-// decodeHashes takes a ThreatEntrySet and returns a list of hashes that should
-// be added to the local database.
-func decodeHashes(input *pb.ThreatEntrySet) ([]hashPrefix, error) {
-	switch input.CompressionType {
-	case pb.CompressionType_RAW:
-		raw := input.GetRawHashes()
-		if raw == nil {
-			return nil, errors.New("safebrowsing: nil raw hashes")
-		}
-		if raw.PrefixSize < minHashPrefixLength || raw.PrefixSize > maxHashPrefixLength {
-			return nil, errors.New("safebrowsing: invalid hash prefix length")
-		}
-		if len(raw.RawHashes)%int(raw.PrefixSize) != 0 {
-			return nil, errors.New("safebrowsing: invalid raw hashes")
-		}
-		hashes := make([]hashPrefix, len(raw.RawHashes)/int(raw.PrefixSize))
-		for i := range hashes {
-			hashes[i] = hashPrefix(raw.RawHashes[:raw.PrefixSize])
-			raw.RawHashes = raw.RawHashes[raw.PrefixSize:]
-		}
-		return hashes, nil
-	case pb.CompressionType_RICE:
-		values, err := decodeRiceIntegers(input.GetRiceHashes())
-		if err != nil {
-			return nil, err
-		}
-		hashes := make([]hashPrefix, 0, len(values))
-		var buf [4]byte
-		for _, h := range values {
-			binary.LittleEndian.PutUint32(buf[:], h)
-			hashes = append(hashes, hashPrefix(buf[:]))
-		}
-		return hashes, nil
-	default:
-		return nil, errors.New("safebrowsing: invalid compression type")
-	}
+func decodeBase64(s string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(s)
 }
 
-// decodeIndices takes a ThreatEntrySet for removals returned by the server and
-// returns a list of indices that the client should remove from its database.
-func decodeIndices(input *pb.ThreatEntrySet) ([]int32, error) {
-	switch input.CompressionType {
-	case pb.CompressionType_RAW:
-		raw := input.GetRawIndices()
-		if raw == nil {
-			return nil, errors.New("safebrowsing: invalid raw indices")
-		}
-		return raw.Indices, nil
-	case pb.CompressionType_RICE:
-		values, err := decodeRiceIntegers(input.GetRiceIndices())
-		if err != nil {
-			return nil, err
-		}
-		indices := make([]int32, 0, len(values))
-		for _, v := range values {
-			indices = append(indices, int32(v))
-		}
-		return indices, nil
-	default:
-		return nil, errors.New("safebrowsing: invalid compression type")
+func decodeRice32Hashes(rice *rice32) ([]hashPrefix, error) {
+	values, err := decodeRice32(rice)
+	if err != nil {
+		return nil, err
 	}
+	hashes := make([]hashPrefix, 0, len(values))
+	var buf [4]byte
+	for _, h := range values {
+		binary.BigEndian.PutUint32(buf[:], h)
+		hashes = append(hashes, hashPrefix(buf[:]))
+	}
+	return hashes, nil
 }
 
-// decodeRiceIntegers decodes a list of Golomb-Rice encoded integers.
-func decodeRiceIntegers(rice *pb.RiceDeltaEncoding) ([]uint32, error) {
+func decodeRice32(rice *rice32) ([]uint32, error) {
 	if rice == nil {
 		return nil, errors.New("safebrowsing: missing rice encoded data")
 	}
@@ -225,10 +178,14 @@ func decodeRiceIntegers(rice *pb.RiceDeltaEncoding) ([]uint32, error) {
 		return nil, errors.New("safebrowsing: invalid k parameter")
 	}
 
-	values := []uint32{uint32(rice.FirstValue)}
-	br := newBitReader(rice.EncodedData)
+	values := []uint32{rice.FirstValue}
+	encodedData, err := decodeBase64(rice.EncodedData)
+	if err != nil {
+		return nil, err
+	}
+	br := newBitReader(encodedData)
 	rd := newRiceDecoder(br, uint32(rice.RiceParameter))
-	for i := 0; i < int(rice.NumEntries); i++ {
+	for i := 0; i < int(rice.EntriesCount); i++ {
 		delta, err := rd.ReadValue()
 		if err != nil {
 			return nil, err
@@ -284,7 +241,7 @@ func (rd *riceDecoder) ReadValue() (uint32, error) {
 		return 0, err
 	}
 
-	return q<<rd.k + r, nil
+	return (q << rd.k) + r, nil
 }
 
 // The bitReader provides functionality to read bits from a slice of bytes.

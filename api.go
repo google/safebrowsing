@@ -5,51 +5,83 @@
 // You may obtain a copy of the License at
 //
 // http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
 package safebrowsing
 
 import (
-	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
-
-	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 )
 
 const (
-	findHashPath    = "/v4/fullHashes:find"
-	fetchUpdatePath = "/v4/threatListUpdates:fetch"
+	batchGetPath = "/v5/hashLists:batchGet"
+	hashSearchPath = "/v5/hashes:search"
 )
 
-// The api interface specifies wrappers around the Safe Browsing API.
+// The api interface specifies wrappers around the Safe Browsing API v5.
 type api interface {
-	ListUpdate(ctx context.Context, req *pb.FetchThreatListUpdatesRequest) (*pb.FetchThreatListUpdatesResponse, error)
-	HashLookup(ctx context.Context, req *pb.FindFullHashesRequest) (*pb.FindFullHashesResponse, error)
+	ListUpdate(ctx context.Context, names []string, versions map[string][]byte) (*hashListsResponse, error)
+	HashLookup(ctx context.Context, prefixes []hashPrefix) (*hashSearchResponse, error)
 }
 
-// netAPI is an api object that talks to the server over HTTP.
 type netAPI struct {
 	client *http.Client
 	url    *url.URL
+	key    string
+	ua     string
 }
 
-// newNetAPI creates a new netAPI object pointed at the provided root URL.
-// For every request, it will use the provided API key.
-// If a proxy URL is given, it will be used in place of the default $HTTP_PROXY.
-// If the protocol is not specified in root, then this defaults to using HTTPS.
-func newNetAPI(root string, key string, proxy string) (*netAPI, error) {
+type hashListsResponse struct {
+	HashLists []hashList `json:"hashLists"`
+}
+
+type hashList struct {
+	Name                string       `json:"name"`
+	Version             string       `json:"version"`
+	PartialUpdate       bool         `json:"partialUpdate"`
+	CompressedRemovals  *rice32      `json:"compressedRemovals"`
+	MinimumWaitDuration string       `json:"minimumWaitDuration"`
+	SHA256Checksum      string       `json:"sha256Checksum"`
+	AdditionsFourBytes  *rice32      `json:"additionsFourBytes"`
+	Metadata            hashMetadata `json:"metadata"`
+}
+
+type hashMetadata struct {
+	ThreatTypes []ThreatType `json:"threatTypes"`
+	HashLength  string       `json:"hashLength"`
+}
+
+type rice32 struct {
+	FirstValue    uint32 `json:"firstValue"`
+	RiceParameter int32  `json:"riceParameter"`
+	EntriesCount  int32  `json:"entriesCount"`
+	EncodedData   string `json:"encodedData"`
+}
+
+type hashSearchResponse struct {
+	FullHashes    []fullHash `json:"fullHashes"`
+	CacheDuration string     `json:"cacheDuration"`
+}
+
+type fullHash struct {
+	FullHash        string           `json:"fullHash"`
+	FullHashDetails []fullHashDetail `json:"fullHashDetails"`
+}
+
+type fullHashDetail struct {
+	ThreatType ThreatType `json:"threatType"`
+	Attributes []string   `json:"attributes"`
+}
+
+func newNetAPI(root string, key string, proxy string, userAgent string) (*netAPI, error) {
 	if !strings.Contains(root, "://") {
 		root = "https://" + root
 	}
@@ -59,59 +91,142 @@ func newNetAPI(root string, key string, proxy string) (*netAPI, error) {
 	}
 
 	httpClient := &http.Client{}
-
 	if proxy != "" {
-		proxyUrl, err := url.Parse(proxy)
+		proxyURL, err := url.Parse(proxy)
 		if err != nil {
 			return nil, err
 		}
-		httpClient = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyUrl)}}
+		httpClient = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
 	}
 
-	q := u.Query()
-	q.Set("key", key)
-	q.Set("alt", "proto")
-	u.RawQuery = q.Encode()
-	return &netAPI{url: u, client: httpClient}, nil
+	return &netAPI{url: u, client: httpClient, key: key, ua: userAgent}, nil
 }
 
-// doRequests performs a POST to requestPath. It uses the marshaled form of req
-// as the request body payload, and automatically unmarshals the response body
-// payload as resp.
-func (a *netAPI) doRequest(ctx context.Context, requestPath string, req proto.Message, resp proto.Message) error {
-	p, err := proto.Marshal(req)
-	if err != nil {
-		return err
-	}
-
-	u := *a.url // Make a copy of URL
+func (a *netAPI) getProto(ctx context.Context, requestPath string, query url.Values, out proto.Message) error {
+	u := *a.url
 	u.Path = requestPath
-	httpReq, err := http.NewRequest("POST", u.String(), bytes.NewReader(p))
-	httpReq.Header.Add("Content-Type", "application/x-protobuf")
-	httpReq = httpReq.WithContext(ctx)
-	httpResp, err := a.client.Do(httpReq)
+	q := u.Query()
+	for k, vals := range query {
+		for _, v := range vals {
+			q.Add(k, v)
+		}
+	}
+	q.Set("key", a.key)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return err
 	}
-	defer httpResp.Body.Close()
-	if httpResp.StatusCode != 200 {
-		return fmt.Errorf("safebrowsing: unexpected server response code: %d", httpResp.StatusCode)
+	if a.ua != "" {
+		req.Header.Set("User-Agent", a.ua)
 	}
-	body, err := ioutil.ReadAll(httpResp.Body)
+	req.Header.Set("Accept", "application/x-protobuf")
+
+	resp, err := a.client.Do(req)
 	if err != nil {
 		return err
 	}
-	return proto.Unmarshal(body, resp)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("safebrowsing: unexpected server response code: %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if err := proto.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("safebrowsing: decode %s response (%s): %w", requestPath, resp.Header.Get("Content-Type"), err)
+	}
+	return nil
 }
 
-// ListUpdate issues a FetchThreatListUpdates API call and returns the response.
-func (a *netAPI) ListUpdate(ctx context.Context, req *pb.FetchThreatListUpdatesRequest) (*pb.FetchThreatListUpdatesResponse, error) {
-	resp := new(pb.FetchThreatListUpdatesResponse)
-	return resp, a.doRequest(ctx, fetchUpdatePath, req, resp)
+func (a *netAPI) ListUpdate(ctx context.Context, names []string, versions map[string][]byte) (*hashListsResponse, error) {
+	q := url.Values{}
+	for _, name := range names {
+		q.Add("names", name)
+		if version := versions[name]; len(version) > 0 {
+			q.Add("version", base64.StdEncoding.EncodeToString(version))
+		}
+	}
+
+	var wireResp batchGetHashListsResponse
+	if err := a.getProto(ctx, batchGetPath, q, &wireResp); err != nil {
+		return nil, err
+	}
+	resp := &hashListsResponse{HashLists: make([]hashList, 0, len(wireResp.HashLists))}
+	for _, wireList := range wireResp.HashLists {
+		list := hashList{
+			Name:           wireList.Name,
+			Version:        base64.StdEncoding.EncodeToString(wireList.Version),
+			PartialUpdate:  wireList.PartialUpdate,
+			SHA256Checksum: base64.StdEncoding.EncodeToString(wireList.SHA256Checksum),
+		}
+		if wait := wireList.MinimumWaitDuration; wait != nil {
+			list.MinimumWaitDuration = wait.Duration().String()
+		}
+		if removals := wireList.CompressedRemovals; removals != nil {
+			list.CompressedRemovals = rice32FromProto(removals)
+		}
+		if additions := wireList.AdditionsFourBytes; additions != nil {
+			list.AdditionsFourBytes = rice32FromProto(additions)
+		}
+		resp.HashLists = append(resp.HashLists, list)
+	}
+	return resp, nil
 }
 
-// HashLookup issues a FindFullHashes API call and returns the response.
-func (a *netAPI) HashLookup(ctx context.Context, req *pb.FindFullHashesRequest) (*pb.FindFullHashesResponse, error) {
-	resp := new(pb.FindFullHashesResponse)
-	return resp, a.doRequest(ctx, findHashPath, req, resp)
+func (a *netAPI) HashLookup(ctx context.Context, prefixes []hashPrefix) (*hashSearchResponse, error) {
+	q := url.Values{}
+	for _, prefix := range prefixes {
+		q.Add("hashPrefixes", base64.StdEncoding.EncodeToString([]byte(prefix)))
+	}
+
+	var wireResp searchHashesResponse
+	if err := a.getProto(ctx, hashSearchPath, q, &wireResp); err != nil {
+		return nil, err
+	}
+	resp := &hashSearchResponse{FullHashes: make([]fullHash, 0, len(wireResp.FullHashes))}
+	if duration := wireResp.CacheDuration; duration != nil {
+		resp.CacheDuration = duration.Duration().String()
+	}
+	for _, wireHash := range wireResp.FullHashes {
+		match := fullHash{
+			FullHash:        base64.StdEncoding.EncodeToString(wireHash.FullHash),
+			FullHashDetails: make([]fullHashDetail, 0, len(wireHash.FullHashDetails)),
+		}
+		for _, wireDetail := range wireHash.FullHashDetails {
+			attributes := make([]string, 0, len(wireDetail.Attributes))
+			for _, attribute := range wireDetail.Attributes {
+				attributes = append(attributes, threatAttributeName(attribute))
+			}
+			match.FullHashDetails = append(match.FullHashDetails, fullHashDetail{
+				ThreatType: ThreatType(threatTypeName(wireDetail.ThreatType)),
+				Attributes: attributes,
+			})
+		}
+		resp.FullHashes = append(resp.FullHashes, match)
+	}
+	return resp, nil
+}
+
+func rice32FromProto(value *riceDeltaEncoded32Bit) *rice32 {
+	return &rice32{
+		FirstValue:    value.FirstValue,
+		RiceParameter: value.RiceParameter,
+		EntriesCount:  value.EntriesCount,
+		EncodedData:   base64.StdEncoding.EncodeToString(value.EncodedData),
+	}
+}
+
+func parseDuration(s string) time.Duration {
+	if s == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0
+	}
+	return d
 }

@@ -5,70 +5,10 @@
 // You may obtain a copy of the License at
 //
 // http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
-// Package safebrowsing implements a client for the Safe Browsing API v4.
-//
-// API v4 emphasizes efficient usage of the network for bandwidth-constrained
-// applications such as mobile devices. It achieves this by maintaining a small
-// portion of the server state locally such that some queries can be answered
-// immediately without any network requests. Thus, fewer API calls made, means
-// less bandwidth is used.
-//
-// At a high-level, the implementation does the following:
-//
-//	            hash(query)
-//	                 |
-//	            _____V_____
-//	           |           | No
-//	           | Database  |-----+
-//	           |___________|     |
-//	                 |           |
-//	                 | Maybe?    |
-//	            _____V_____      |
-//	       Yes |           | No  V
-//	     +-----|   Cache   |---->+
-//	     |     |___________|     |
-//	     |           |           |
-//	     |           | Maybe?    |
-//	     |      _____V_____      |
-//	     V Yes |           | No  V
-//	     +<----|    API    |---->+
-//	     |     |___________|     |
-//	     V                       V
-//	(Yes, unsafe)            (No, safe)
-//
-// Essentially the query is presented to three major components: The database,
-// the cache, and the API. Each of these may satisfy the query immediately,
-// or may say that it does not know and that the query should be satisfied by
-// the next component. The goal of the database and cache is to satisfy as many
-// queries as possible to avoid using the API.
-//
-// Starting with a user query, a hash of the query is performed to preserve
-// privacy regarded the exact nature of the query. For example, if the query
-// was for a URL, then this would be the SHA256 hash of the URL in question.
-//
-// Given a query hash, we first check the local database (which is periodically
-// synced with the global Safe Browsing API servers). This database will either
-// tell us that the query is definitely safe, or that it does not have
-// enough information.
-//
-// If we are unsure about the query, we check the local cache, which can be used
-// to satisfy queries immediately if the same query had been made recently.
-// The cache will tell us that the query is either safe, unsafe, or unknown
-// (because the it's not in the cache or the entry expired).
-//
-// If we are still unsure about the query, then we finally query the API server,
-// which is guaranteed to return to us an authoritative answer, assuming no
-// networking failures.
-//
-// For more information, see the API developer's guide:
-//	https://developers.google.com/safe-browsing/
+// Package safebrowsing implements a client for the Safe Browsing API v5 Local
+// List Mode. It maintains a local hash-prefix database and only calls Google
+// for full hashes after a local prefix hit.
 package safebrowsing
 
 import (
@@ -79,166 +19,76 @@ import (
 	"log"
 	"sync/atomic"
 	"time"
-
-	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
 )
 
 const (
-	// DefaultServerURL is the default URL for the Safe Browsing API.
-	DefaultServerURL = "safebrowsing.googleapis.com"
-
-	// DefaultUpdatePeriod is the default period for how often SafeBrowser will
-	// reload its blacklist database.
-	DefaultUpdatePeriod = 30 * time.Minute
-
-	// DefaultID and DefaultVersion are the default client ID and Version
-	// strings to send with every API call.
-	DefaultID      = "GoSafeBrowser"
-	DefaultVersion = "1.0.0"
-
-	// DefaultRequestTimeout is the default amount of time a single
-	// api request can take.
+	DefaultServerURL     = "safebrowsing.googleapis.com"
+	DefaultUpdatePeriod  = 30 * time.Minute
+	DefaultID            = "GoSafeBrowser"
+	DefaultVersion       = "2.0.0"
 	DefaultRequestTimeout = time.Minute
 )
 
-// Errors specific to this package.
 var (
 	errClosed = errors.New("safebrowsing: handler is closed")
 	errStale  = errors.New("safebrowsing: threat list is stale")
 )
 
-// ThreatType is an enumeration type for threats classes. Examples of threat
-// classes are malware, social engineering, etc.
-type ThreatType uint16
+type ThreatType string
 
-func (tt ThreatType) String() string { return pb.ThreatType(tt).String() }
-
-// List of ThreatType constants.
 const (
-	ThreatType_Malware                       = ThreatType(pb.ThreatType_MALWARE)
-	ThreatType_SocialEngineering             = ThreatType(pb.ThreatType_SOCIAL_ENGINEERING)
-	ThreatType_UnwantedSoftware              = ThreatType(pb.ThreatType_UNWANTED_SOFTWARE)
-	ThreatType_PotentiallyHarmfulApplication = ThreatType(pb.ThreatType_POTENTIALLY_HARMFUL_APPLICATION)
+	ThreatTypeUnspecified                   ThreatType = "THREAT_TYPE_UNSPECIFIED"
+	ThreatTypeMalware                       ThreatType = "MALWARE"
+	ThreatTypeSocialEngineering             ThreatType = "SOCIAL_ENGINEERING"
+	ThreatTypeUnwantedSoftware              ThreatType = "UNWANTED_SOFTWARE"
+	ThreatTypePotentiallyHarmfulApplication ThreatType = "POTENTIALLY_HARMFUL_APPLICATION"
 )
 
-// PlatformType is an enumeration type for platform classes. Examples of
-// platform classes are Windows, Linux, Android, etc.
-type PlatformType uint16
-
-func (pt PlatformType) String() string { return pb.PlatformType(pt).String() }
-
-// List of PlatformType constants.
-const (
-	PlatformType_AnyPlatform  = PlatformType(pb.PlatformType_ANY_PLATFORM)
-	PlatformType_AllPlatforms = PlatformType(pb.PlatformType_ALL_PLATFORMS)
-
-	PlatformType_Windows = PlatformType(pb.PlatformType_WINDOWS)
-	PlatformType_Linux   = PlatformType(pb.PlatformType_LINUX)
-	PlatformType_Android = PlatformType(pb.PlatformType_ANDROID)
-	PlatformType_OSX     = PlatformType(pb.PlatformType_OSX)
-	PlatformType_iOS     = PlatformType(pb.PlatformType_IOS)
-	PlatformType_Chrome  = PlatformType(pb.PlatformType_CHROME)
-)
-
-// ThreatEntryType is an enumeration type for threat entries. Examples of
-// threat entries are via URLs, binary digests, and IP address ranges.
-type ThreatEntryType uint16
-
-func (tet ThreatEntryType) String() string { return pb.ThreatEntryType(tet).String() }
-
-// List of ThreatEntryType constants.
-const (
-	ThreatEntryType_URL = ThreatEntryType(pb.ThreatEntryType_URL)
-
-	// These below are not supported yet.
-	ThreatEntryType_Executable = ThreatEntryType(pb.ThreatEntryType_EXECUTABLE)
-	ThreatEntryType_IPRange    = ThreatEntryType(pb.ThreatEntryType_IP_RANGE)
-)
-
-// DefaultThreatLists is the default list of threat lists that SafeBrowser
-// will maintain. Do not modify this variable.
-var DefaultThreatLists = []ThreatDescriptor{
-	{ThreatType_Malware, PlatformType_AnyPlatform, ThreatEntryType_URL},
-	{ThreatType_SocialEngineering, PlatformType_AnyPlatform, ThreatEntryType_URL},
-	{ThreatType_UnwantedSoftware, PlatformType_AnyPlatform, ThreatEntryType_URL},
+func (tt ThreatType) String() string {
+	if tt == "" {
+		return string(ThreatTypeUnspecified)
+	}
+	return string(tt)
 }
 
-// A ThreatDescriptor describes a given threat, which itself is composed of
-// several parameters along different dimensions: ThreatType, PlatformType, and
-// ThreatEntryType.
-type ThreatDescriptor struct {
-	ThreatType      ThreatType
-	PlatformType    PlatformType
-	ThreatEntryType ThreatEntryType
+type HashList struct {
+	Name       string
+	ThreatType ThreatType
 }
 
-// A URLThreat is a specialized ThreatDescriptor for the URL threat
-// entry type.
 type URLThreat struct {
 	Pattern string
-	ThreatDescriptor
+	HashList
 }
 
-// Config sets up the SafeBrowser object.
+var DefaultHashLists = []HashList{
+	{Name: "mw-4b", ThreatType: ThreatTypeMalware},
+	{Name: "se-4b", ThreatType: ThreatTypeSocialEngineering},
+	{Name: "uws-4b", ThreatType: ThreatTypeUnwantedSoftware},
+}
+
 type Config struct {
-	// ServerURL is the URL for the Safe Browsing API server.
-	// If empty, it defaults to DefaultServerURL.
-	ServerURL string
-
-	// ProxyURL is the URL of the proxy to use for all requests.
-	// If empty, the underlying library uses $HTTP_PROXY environment variable.
-	ProxyURL string
-
-	// APIKey is the key used to authenticate with the Safe Browsing API
-	// service. This field is required.
-	APIKey string
-
-	// ID and Version are client metadata associated with each API request to
-	// identify the specific implementation of the client.
-	// They are similar in usage to the "User-Agent" in an HTTP request.
-	// If empty, these default to DefaultID and DefaultVersion, respectively.
-	ID      string
-	Version string
-
-	// DBPath is a path to a persistent database file.
-	// If empty, SafeBrowser operates in a non-persistent manner.
-	// This means that blacklist results will not be cached beyond the lifetime
-	// of the SafeBrowser object.
-	DBPath string
-
-	// UpdatePeriod determines how often we update the internal list database.
-	// If zero value, it defaults to DefaultUpdatePeriod.
-	UpdatePeriod time.Duration
-
-	// ThreatLists determines which threat lists that SafeBrowser should
-	// subscribe to. The threats reported by LookupURLs will only be ones that
-	// are specified by this list.
-	// If empty, it defaults to DefaultThreatLists.
-	ThreatLists []ThreatDescriptor
-
-	// RequestTimeout determines the timeout value for the http client.
+	ServerURL      string
+	ProxyURL       string
+	APIKey         string
+	ID             string
+	Version        string
+	DBPath         string
+	UpdatePeriod   time.Duration
+	HashLists      []HashList
 	RequestTimeout time.Duration
-
-	// Logger is an io.Writer that allows SafeBrowser to write debug information
-	// intended for human consumption.
-	// If empty, no logs will be written.
-	Logger io.Writer
-
-	// compressionTypes indicates how the threat entry sets can be compressed.
-	compressionTypes []pb.CompressionType
+	Logger         io.Writer
 
 	api api
 	now func() time.Time
 }
 
-// setDefaults configures Config to have default parameters.
-// It reports whether the current configuration is valid.
 func (c *Config) setDefaults() bool {
 	if c.ServerURL == "" {
 		c.ServerURL = DefaultServerURL
 	}
-	if len(c.ThreatLists) == 0 {
-		c.ThreatLists = DefaultThreatLists
+	if len(c.HashLists) == 0 {
+		c.HashLists = DefaultHashLists
 	}
 	if c.UpdatePeriod <= 0 {
 		c.UpdatePeriod = DefaultUpdatePeriod
@@ -246,63 +96,53 @@ func (c *Config) setDefaults() bool {
 	if c.RequestTimeout <= 0 {
 		c.RequestTimeout = DefaultRequestTimeout
 	}
-	if c.compressionTypes == nil {
-		c.compressionTypes = []pb.CompressionType{pb.CompressionType_RAW, pb.CompressionType_RICE}
+	if c.ID == "" {
+		c.ID = DefaultID
+	}
+	if c.Version == "" {
+		c.Version = DefaultVersion
 	}
 	return true
 }
 
 func (c Config) copy() Config {
 	c2 := c
-	c2.ThreatLists = append([]ThreatDescriptor(nil), c.ThreatLists...)
-	c2.compressionTypes = append([]pb.CompressionType(nil), c.compressionTypes...)
+	c2.HashLists = append([]HashList(nil), c.HashLists...)
 	return c2
 }
 
-// SafeBrowser is a client implementation of API v4.
-//
-// It provides a set of lookup methods that allows the user to query whether
-// certain entries are considered a threat. The implementation manages all of
-// local database and caching that would normally be needed to interact
-// with the API server.
+func (c Config) userAgent() string {
+	return c.ID + "/" + c.Version
+}
+
 type SafeBrowser struct {
-	stats  Stats // Must be first for 64-bit alignment on non 64-bit systems.
+	stats  Stats
 	config Config
 	api    api
 	db     database
 	c      cache
-
-	lists map[ThreatDescriptor]bool
-
-	log *log.Logger
-
+	lists  map[string]HashList
+	log    *log.Logger
 	closed uint32
-	done   chan bool // Signals that the updater routine should stop
+	done   chan bool
 }
 
-// Stats records statistics regarding SafeBrowser's operation.
 type Stats struct {
-	QueriesByDatabase int64         // Number of queries satisfied by the database alone
-	QueriesByCache    int64         // Number of queries satisfied by the cache alone
-	QueriesByAPI      int64         // Number of queries satisfied by an API call
-	QueriesFail       int64         // Number of queries that could not be satisfied
-	DatabaseUpdateLag time.Duration // Duration since last *missed* update. 0 if next update is in the future.
+	QueriesByDatabase int64
+	QueriesByCache    int64
+	QueriesByAPI      int64
+	QueriesFail       int64
+	DatabaseUpdateLag time.Duration
 }
 
-// NewSafeBrowser creates a new SafeBrowser.
-//
-// The conf struct allows the user to configure many aspects of the
-// SafeBrowser's operation.
 func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 	conf = conf.copy()
 	if !conf.setDefaults() {
 		return nil, errors.New("safebrowsing: invalid configuration")
 	}
-
-	// Create the SafeBrowsing object.
 	if conf.api == nil {
 		var err error
-		conf.api, err = newNetAPI(conf.ServerURL, conf.APIKey, conf.ProxyURL)
+		conf.api, err = newNetAPI(conf.ServerURL, conf.APIKey, conf.ProxyURL, conf.userAgent())
 		if err != nil {
 			return nil, err
 		}
@@ -310,50 +150,37 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 	if conf.now == nil {
 		conf.now = time.Now
 	}
+
 	sb := &SafeBrowser{
 		config: conf,
 		api:    conf.api,
 		c:      cache{now: conf.now},
+		lists:  make(map[string]HashList),
+	}
+	for _, list := range conf.HashLists {
+		sb.lists[list.Name] = list
 	}
 
-	// TODO: Verify that config.ThreatLists is a subset of the list obtained
-	// by "/v4/threatLists" API endpoint.
-
-	// Convert threat lists slice to a map for O(1) lookup.
-	sb.lists = make(map[ThreatDescriptor]bool)
-	for _, td := range conf.ThreatLists {
-		sb.lists[td] = true
-	}
-
-	// Setup the logger.
 	w := conf.Logger
-	if conf.Logger == nil {
+	if w == nil {
 		w = ioutil.Discard
 	}
 	sb.log = log.New(w, "safebrowsing: ", log.Ldate|log.Ltime|log.Lshortfile)
 
 	delay := time.Duration(0)
-	// If database file is provided, use that to initialize.
 	if !sb.db.Init(&sb.config, sb.log) {
 		ctx, cancel := context.WithTimeout(context.Background(), sb.config.RequestTimeout)
 		delay, _ = sb.db.Update(ctx, sb.api)
 		cancel()
 	} else {
-		if age := sb.db.SinceLastUpdate(); age < sb.config.UpdatePeriod {
-			delay = sb.config.UpdatePeriod - age
-		}
+		delay = sb.db.UntilNextUpdate()
 	}
 
-	// Start the background list updater.
 	sb.done = make(chan bool)
 	go sb.updater(delay)
 	return sb, nil
 }
 
-// Status reports the status of SafeBrowser. It returns some statistics
-// regarding the operation, and an error representing the status of its
-// internal state. Most errors are transient and will recover themselves
-// after some period.
 func (sb *SafeBrowser) Status() (Stats, error) {
 	stats := Stats{
 		QueriesByDatabase: atomic.LoadInt64(&sb.stats.QueriesByDatabase),
@@ -365,9 +192,10 @@ func (sb *SafeBrowser) Status() (Stats, error) {
 	return stats, sb.db.Status()
 }
 
-// WaitUntilReady blocks until the database is not in an error state.
-// Returns nil when the database is ready. Returns an error if the provided
-// context is canceled or if the SafeBrowser instance is Closed.
+func (sb *SafeBrowser) DatabaseHealth() DatabaseHealth {
+	return sb.db.Health()
+}
+
 func (sb *SafeBrowser) WaitUntilReady(ctx context.Context) error {
 	if atomic.LoadUint32(&sb.closed) == 1 {
 		return errClosed
@@ -382,36 +210,15 @@ func (sb *SafeBrowser) WaitUntilReady(ctx context.Context) error {
 	}
 }
 
-// LookupURLs looks up the provided URLs. It returns a list of threats, one for
-// every URL requested, and an error if any occurred. It is safe to call this
-// method concurrently.
-//
-// The outer dimension is across all URLs requested, and will always have the
-// same length as urls regardless of whether an error occurs or not.
-// The inner dimension is across every fragment that a given URL produces.
-// For some URL at index i, one can check for a hit on any blacklist by
-// checking if len(threats[i]) > 0.
-// The ThreatEntryType field in the inner ThreatDescriptor will be set to
-// ThreatEntryType_URL as this is a URL lookup.
-//
-// If an error occurs, the caller should treat the threats list returned as a
-// best-effort response to the query. The results may be stale or be partial.
-func (sb *SafeBrowser) LookupURLs(urls []string) (threats [][]URLThreat, err error) {
-	threats, err = sb.LookupURLsContext(context.Background(), urls)
-	return threats, err
+func (sb *SafeBrowser) LookupURLs(urls []string) ([][]URLThreat, error) {
+	return sb.LookupURLsContext(context.Background(), urls)
 }
 
-// LookupURLsContext looks up the provided URLs. The request will be canceled
-// if the provided Context is canceled, or if Config.RequestTimeout has
-// elapsed. It is safe to call this method concurrently.
-//
-// See LookupURLs for details on the returned results.
 func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (threats [][]URLThreat, err error) {
 	ctx, cancel := context.WithTimeout(ctx, sb.config.RequestTimeout)
 	defer cancel()
 
 	threats = make([][]URLThreat, len(urls))
-
 	if atomic.LoadUint32(&sb.closed) != 0 {
 		return threats, errClosed
 	}
@@ -423,135 +230,104 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 
 	hashes := make(map[hashPrefix]string)
 	hash2idxs := make(map[hashPrefix][]int)
+	prefixes := make(map[hashPrefix]struct{})
+	hashListsByHash := make(map[hashPrefix][]HashList)
 
-	// Construct the follow-up request being made to the server.
-	// In the request, we only ask for partial hashes for privacy reasons.
-	req := &pb.FindFullHashesRequest{
-		Client: &pb.ClientInfo{
-			ClientId:      sb.config.ID,
-			ClientVersion: sb.config.Version,
-		},
-		ThreatInfo: &pb.ThreatInfo{},
-	}
-	ttm := make(map[pb.ThreatType]bool)
-	ptm := make(map[pb.PlatformType]bool)
-	tetm := make(map[pb.ThreatEntryType]bool)
-
-	for i, url := range urls {
-		urlhashes, err := generateHashes(url)
+	for i, rawURL := range urls {
+		urlHashes, err := generateHashes(rawURL)
 		if err != nil {
 			sb.log.Printf("error generating urlhashes: %v", err)
 			atomic.AddInt64(&sb.stats.QueriesFail, int64(len(urls)-i))
 			return threats, err
 		}
 
-		for fullHash, pattern := range urlhashes {
+		for fullHash, pattern := range urlHashes {
 			hash2idxs[fullHash] = append(hash2idxs[fullHash], i)
-			_, alreadyRequested := hashes[fullHash]
 			hashes[fullHash] = pattern
 
-			// Lookup in database according to threat list.
-			partialHash, unsureThreats := sb.db.Lookup(fullHash)
-			if len(unsureThreats) == 0 {
+			partialHash, possibleLists := sb.db.Lookup(fullHash)
+			if len(possibleLists) == 0 {
 				atomic.AddInt64(&sb.stats.QueriesByDatabase, 1)
-				continue // There are definitely no threats for this full hash
+				continue
 			}
+			hashListsByHash[fullHash] = possibleLists
 
-			// Lookup in cache according to recently seen values.
 			cachedThreats, cr := sb.c.Lookup(fullHash)
 			switch cr {
 			case positiveCacheHit:
-				// The cache remembers this full hash as a threat.
-				// The threats we return to the client is the set intersection
-				// of unsureThreats and cachedThreats.
-				for _, td := range unsureThreats {
-					if _, ok := cachedThreats[td]; ok {
-						threats[i] = append(threats[i], URLThreat{
-							Pattern:          pattern,
-							ThreatDescriptor: td,
-						})
+				for _, list := range possibleLists {
+					if cachedThreats[list.ThreatType] {
+						threats[i] = append(threats[i], URLThreat{Pattern: pattern, HashList: list})
 					}
 				}
 				atomic.AddInt64(&sb.stats.QueriesByCache, 1)
 			case negativeCacheHit:
-				// This is cached as a non-threat.
 				atomic.AddInt64(&sb.stats.QueriesByCache, 1)
-				continue
 			default:
-				// The cache knows nothing about this full hash, so we must make
-				// a request for it.
-				if alreadyRequested {
-					continue
-				}
-				for _, td := range unsureThreats {
-					ttm[pb.ThreatType(td.ThreatType)] = true
-					ptm[pb.PlatformType(td.PlatformType)] = true
-					tetm[pb.ThreatEntryType(td.ThreatEntryType)] = true
-				}
-				req.ThreatInfo.ThreatEntries = append(req.ThreatInfo.ThreatEntries,
-					&pb.ThreatEntry{Hash: []byte(partialHash)})
+				prefixes[partialHash] = struct{}{}
 			}
 		}
 	}
-	for tt := range ttm {
-		req.ThreatInfo.ThreatTypes = append(req.ThreatInfo.ThreatTypes, tt)
-	}
-	for pt := range ptm {
-		req.ThreatInfo.PlatformTypes = append(req.ThreatInfo.PlatformTypes, pt)
-	}
-	for tet := range tetm {
-		req.ThreatInfo.ThreatEntryTypes = append(req.ThreatInfo.ThreatEntryTypes, tet)
+
+	if len(prefixes) == 0 {
+		return threats, nil
 	}
 
-	// Actually query the Safe Browsing API for exact full hash matches.
-	if len(req.ThreatInfo.ThreatEntries) != 0 {
-		resp, err := sb.api.HashLookup(ctx, req)
+	reqPrefixes := make([]hashPrefix, 0, len(prefixes))
+	for prefix := range prefixes {
+		reqPrefixes = append(reqPrefixes, prefix)
+	}
+	resp, err := sb.api.HashLookup(ctx, reqPrefixes)
+	if err != nil {
+		sb.log.Printf("HashLookup failure: %v", err)
+		atomic.AddInt64(&sb.stats.QueriesFail, 1)
+		return threats, err
+	}
+	sb.c.Update(reqPrefixes, resp)
+
+	for _, match := range resp.FullHashes {
+		fullHashBytes, err := decodeBase64(match.FullHash)
 		if err != nil {
-			sb.log.Printf("HashLookup failure: %v", err)
-			atomic.AddInt64(&sb.stats.QueriesFail, 1)
-			return threats, err
+			continue
 		}
-
-		// Update the cache.
-		sb.c.Update(req, resp)
-
-		// Pull the information the client cares about out of the response.
-		for _, tm := range resp.GetMatches() {
-			fullHash := hashPrefix(tm.GetThreat().Hash)
-			if !fullHash.IsFull() {
+		fullHash := hashPrefix(fullHashBytes)
+		if !fullHash.IsFull() {
+			continue
+		}
+		pattern, ok := hashes[fullHash]
+		idxs, foundIdxs := hash2idxs[fullHash]
+		if !ok || !foundIdxs {
+			continue
+		}
+		possibleLists := hashListsByHash[fullHash]
+		for _, detail := range match.FullHashDetails {
+			if !validThreatType(detail.ThreatType) {
 				continue
 			}
-			pattern, ok := hashes[fullHash]
-			idxs, findidx := hash2idxs[fullHash]
-			if findidx && ok {
-				td := ThreatDescriptor{
-					ThreatType:      ThreatType(tm.ThreatType),
-					PlatformType:    PlatformType(tm.PlatformType),
-					ThreatEntryType: ThreatEntryType(tm.ThreatEntryType),
-				}
-				if !sb.lists[td] {
+			for _, list := range possibleLists {
+				if list.ThreatType != detail.ThreatType {
 					continue
 				}
 				for _, idx := range idxs {
-					threats[idx] = append(threats[idx], URLThreat{
-						Pattern:          pattern,
-						ThreatDescriptor: td,
-					})
+					threats[idx] = append(threats[idx], URLThreat{Pattern: pattern, HashList: list})
 				}
 			}
 		}
-		atomic.AddInt64(&sb.stats.QueriesByAPI, 1)
 	}
+
+	atomic.AddInt64(&sb.stats.QueriesByAPI, 1)
 	return threats, nil
 }
 
-// TODO: Add other types of lookup when available.
-//	func (sb *SafeBrowser) LookupBinaries(digests []string) (threats []BinaryThreat, err error)
-//	func (sb *SafeBrowser) LookupAddresses(addrs []string) (threats [][]AddressThreat, err error)
+func validThreatType(tt ThreatType) bool {
+	switch tt {
+	case ThreatTypeMalware, ThreatTypeSocialEngineering, ThreatTypeUnwantedSoftware, ThreatTypePotentiallyHarmfulApplication:
+		return true
+	default:
+		return false
+	}
+}
 
-// updater is a blocking method that periodically updates the local database.
-// This should be run as a separate goroutine and will be automatically stopped
-// when sb.Close is called.
 func (sb *SafeBrowser) updater(delay time.Duration) {
 	for {
 		sb.log.Printf("Next update in %v", delay)
@@ -564,15 +340,12 @@ func (sb *SafeBrowser) updater(delay time.Duration) {
 				sb.c.Purge()
 			}
 			cancel()
-
 		case <-sb.done:
 			return
 		}
 	}
 }
 
-// Close cleans up all resources.
-// This method must not be called concurrently with other lookup methods.
 func (sb *SafeBrowser) Close() error {
 	if atomic.LoadUint32(&sb.closed) == 0 {
 		atomic.StoreUint32(&sb.closed, 1)
