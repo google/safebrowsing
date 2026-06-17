@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	batchGetPath = "/v5/hashLists:batchGet"
-	hashSearchPath = "/v5/hashes:search"
+	batchGetPath              = "/v5/hashLists:batchGet"
+	hashSearchPath            = "/v5/hashes:search"
+	maxHashPrefixesPerRequest = 1000
 )
 
 // The api interface specifies wrappers around the Safe Browsing API v5.
@@ -178,8 +179,14 @@ func (a *netAPI) ListUpdate(ctx context.Context, names []string, versions map[st
 }
 
 func (a *netAPI) HashLookup(ctx context.Context, prefixes []hashPrefix) (*hashSearchResponse, error) {
+	if len(prefixes) > maxHashPrefixesPerRequest {
+		return nil, fmt.Errorf("safebrowsing: too many hash prefixes: %d", len(prefixes))
+	}
 	q := url.Values{}
 	for _, prefix := range prefixes {
+		if len(prefix) != minHashPrefixLength {
+			return nil, fmt.Errorf("safebrowsing: hash prefix must be exactly %d bytes", minHashPrefixLength)
+		}
 		q.Add("hashPrefixes", base64.StdEncoding.EncodeToString([]byte(prefix)))
 	}
 

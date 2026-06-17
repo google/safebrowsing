@@ -55,7 +55,7 @@ func TestCacheUpdateAndLookup(t *testing.T) {
 	resp := &hashSearchResponse{
 		CacheDuration: "60s",
 		FullHashes: []fullHash{{
-			FullHash: base64.StdEncoding.EncodeToString([]byte(full)),
+			FullHash:        base64.StdEncoding.EncodeToString([]byte(full)),
 			FullHashDetails: []fullHashDetail{{ThreatType: ThreatTypeMalware}},
 		}},
 	}
@@ -71,19 +71,63 @@ func TestCacheUpdateAndLookup(t *testing.T) {
 	}
 }
 
+func TestCacheIgnoresNonEnforceableAndUnknownDetails(t *testing.T) {
+	now := time.Unix(1000, 0)
+	c := cache{now: func() time.Time { return now }}
+	full := hashPrefix("aaaabbbbccccddddeeeeffffgggghhhh")
+	resp := &hashSearchResponse{
+		CacheDuration: "60s",
+		FullHashes: []fullHash{{
+			FullHash: base64.StdEncoding.EncodeToString([]byte(full)),
+			FullHashDetails: []fullHashDetail{
+				{ThreatType: ThreatTypeMalware, Attributes: []string{"CANARY"}},
+				{ThreatType: ThreatTypeMalware, Attributes: []string{"FRAME_ONLY"}},
+				{ThreatType: ThreatTypeMalware, Attributes: []string{"THREAT_ATTRIBUTE_UNSPECIFIED"}},
+			},
+		}},
+	}
+	c.Update([]hashPrefix{"aaaa"}, resp)
+
+	if _, result := c.Lookup(full); result != negativeCacheHit {
+		t.Fatalf("non-enforceable details were cached as threats: %v", result)
+	}
+}
+
+func TestEnforceableThreatDetail(t *testing.T) {
+	tests := []struct {
+		name   string
+		detail fullHashDetail
+		want   bool
+	}{
+		{name: "plain threat", detail: fullHashDetail{ThreatType: ThreatTypeMalware}, want: true},
+		{name: "unknown threat", detail: fullHashDetail{ThreatType: ThreatTypeUnspecified}, want: false},
+		{name: "canary", detail: fullHashDetail{ThreatType: ThreatTypeMalware, Attributes: []string{"CANARY"}}, want: false},
+		{name: "frame only", detail: fullHashDetail{ThreatType: ThreatTypeMalware, Attributes: []string{"FRAME_ONLY"}}, want: false},
+		{name: "unknown attribute", detail: fullHashDetail{ThreatType: ThreatTypeMalware, Attributes: []string{"NEW_ATTRIBUTE"}}, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := enforceableThreatDetail(test.detail); got != test.want {
+				t.Fatalf("got %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestDatabaseUpdate(t *testing.T) {
 	now := time.Unix(1000, 0)
 	config := &Config{
-		HashLists: []HashList{{Name: "mw-4b", ThreatType: ThreatTypeMalware}},
+		HashLists:    []HashList{{Name: "mw-4b", ThreatType: ThreatTypeMalware}},
 		UpdatePeriod: time.Hour,
-		now: func() time.Time { return now },
+		now:          func() time.Time { return now },
 	}
 	db := &database{config: config, log: log.New(testWriter{}, "", 0)}
 	resp := &hashListsResponse{HashLists: []hashList{{
-		Name:           "mw-4b",
-		Version:        base64.StdEncoding.EncodeToString([]byte("v1")),
-		SHA256Checksum: base64.StdEncoding.EncodeToString(mustDecodeHex(t, "61be55a8e2f6b4e172338bddf184d6dbee29c98853e0a0485ecee7f27b9af0b4")),
-		AdditionsFourBytes: &rice32{FirstValue: 0x61616161},
+		Name:                "mw-4b",
+		Version:             base64.StdEncoding.EncodeToString([]byte("v1")),
+		MinimumWaitDuration: "20m",
+		SHA256Checksum:      base64.StdEncoding.EncodeToString(mustDecodeHex(t, "61be55a8e2f6b4e172338bddf184d6dbee29c98853e0a0485ecee7f27b9af0b4")),
+		AdditionsFourBytes:  &rice32{FirstValue: 0x61616161},
 	}}}
 
 	delay, ok := db.Update(context.Background(), &mockAPI{
@@ -91,7 +135,7 @@ func TestDatabaseUpdate(t *testing.T) {
 			return resp, nil
 		},
 	})
-	if !ok || delay == 0 {
+	if !ok || delay != 20*time.Minute {
 		t.Fatalf("unexpected update result: ok=%v delay=%v err=%v", ok, delay, db.err)
 	}
 	got := db.tfl["mw-4b"]
@@ -132,7 +176,7 @@ func TestDatabaseBecomesStaleAfterFreshnessDeadline(t *testing.T) {
 func TestUpdateFailureKeepsFreshDatabaseAvailable(t *testing.T) {
 	now := time.Unix(1000, 0)
 	config := &Config{
-		HashLists:   []HashList{{Name: "mw-4b", ThreatType: ThreatTypeMalware}},
+		HashLists:    []HashList{{Name: "mw-4b", ThreatType: ThreatTypeMalware}},
 		UpdatePeriod: time.Minute,
 		now:          func() time.Time { return now },
 	}

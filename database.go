@@ -232,7 +232,35 @@ func (db *database) Update(ctx context.Context, api api) (time.Duration, bool) {
 	}
 	db.updateAPIErrors = 0
 
-	nextUpdateWait := db.config.UpdatePeriod + time.Duration(rand.Int31n(60)-30)*time.Second
+	if err := validateHashListResponse(names, resp); err != nil {
+		db.log.Printf("invalid ListUpdate response: %v", err)
+		db.recordUpdateFailure(err)
+		return baseRetryDelay, false
+	}
+
+	var nextUpdateWait time.Duration
+	for _, hl := range resp.HashLists {
+		wait := parseDuration(hl.MinimumWaitDuration)
+		db.log.Printf(
+			"Google hash list response: name=%s update=%s minimum_wait_duration=%v additions=%d removals=%d version=%s",
+			hl.Name,
+			hashListUpdateType(hl),
+			wait,
+			riceValueCount(hl.AdditionsFourBytes),
+			riceValueCount(hl.CompressedRemovals),
+			abbreviateOpaqueValue(hl.Version),
+		)
+		if wait > nextUpdateWait {
+			nextUpdateWait = wait
+		}
+	}
+	if nextUpdateWait > 0 {
+		db.log.Printf("Google minimum_wait_duration: %v", nextUpdateWait)
+	} else {
+		db.log.Printf("Google minimum_wait_duration missing or zero; scheduling immediate follow-up update")
+	}
+	db.log.Printf("Selected next database update in %v", nextUpdateWait)
+
 	db.generateThreatsForUpdate()
 	if db.tfu == nil {
 		db.tfu = make(threatsForUpdate)
@@ -248,12 +276,6 @@ func (db *database) Update(ctx context.Context, api api) (time.Duration, bool) {
 		db.recordUpdateFailure(err)
 		db.tfu = nil
 		return nextUpdateWait, false
-	}
-
-	for _, hl := range resp.HashLists {
-		if wait := parseDuration(hl.MinimumWaitDuration); wait > nextUpdateWait {
-			nextUpdateWait = wait
-		}
 	}
 
 	nextUpdate := last.Add(nextUpdateWait)
@@ -275,6 +297,46 @@ func (db *database) Update(ctx context.Context, api api) (time.Duration, bool) {
 		}
 	}
 	return nextUpdateWait, true
+}
+
+func validateHashListResponse(names []string, resp *hashListsResponse) error {
+	if resp == nil {
+		return errors.New("safebrowsing: nil hash list response")
+	}
+	if len(resp.HashLists) != len(names) {
+		return errors.New("safebrowsing: hash list response count mismatch")
+	}
+	for i, name := range names {
+		if resp.HashLists[i].Name != name {
+			return errors.New("safebrowsing: hash list response order mismatch")
+		}
+	}
+	return nil
+}
+
+func hashListUpdateType(hl hashList) string {
+	if hl.PartialUpdate {
+		return "partial"
+	}
+	return "full"
+}
+
+func riceValueCount(values *rice32) int64 {
+	if values == nil {
+		return 0
+	}
+	return int64(values.EntriesCount) + 1
+}
+
+func abbreviateOpaqueValue(value string) string {
+	const maxLength = 12
+	if value == "" {
+		return "<empty>"
+	}
+	if len(value) <= maxLength {
+		return value
+	}
+	return value[:maxLength] + "..."
 }
 
 func (db *database) Lookup(hash hashPrefix) (hashPrefix, []HashList) {

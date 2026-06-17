@@ -55,7 +55,7 @@ func (c *cache) Update(prefixes []hashPrefix, resp *hashSearchResponse) {
 			c.pttls[fullHash] = make(map[ThreatType]time.Time)
 		}
 		for _, detail := range match.FullHashDetails {
-			if validThreatType(detail.ThreatType) {
+			if enforceableThreatDetail(detail) {
 				c.pttls[fullHash][detail.ThreatType] = expiration
 			}
 		}

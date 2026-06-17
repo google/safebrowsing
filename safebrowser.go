@@ -22,10 +22,10 @@ import (
 )
 
 const (
-	DefaultServerURL     = "safebrowsing.googleapis.com"
-	DefaultUpdatePeriod  = 30 * time.Minute
-	DefaultID            = "GoSafeBrowser"
-	DefaultVersion       = "2.0.0"
+	DefaultServerURL      = "safebrowsing.googleapis.com"
+	DefaultUpdatePeriod   = 30 * time.Minute
+	DefaultID             = "GoSafeBrowser"
+	DefaultVersion        = "2.0.0"
 	DefaultRequestTimeout = time.Minute
 )
 
@@ -245,27 +245,28 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 			hash2idxs[fullHash] = append(hash2idxs[fullHash], i)
 			hashes[fullHash] = pattern
 
+			cachedThreats, cr := sb.c.Lookup(fullHash)
+			switch cr {
+			case positiveCacheHit:
+				for _, list := range sb.config.HashLists {
+					if cachedThreats[list.ThreatType] {
+						threats[i] = append(threats[i], URLThreat{Pattern: pattern, HashList: list})
+					}
+				}
+				atomic.AddInt64(&sb.stats.QueriesByCache, 1)
+				continue
+			case negativeCacheHit:
+				atomic.AddInt64(&sb.stats.QueriesByCache, 1)
+				continue
+			}
+
 			partialHash, possibleLists := sb.db.Lookup(fullHash)
 			if len(possibleLists) == 0 {
 				atomic.AddInt64(&sb.stats.QueriesByDatabase, 1)
 				continue
 			}
 			hashListsByHash[fullHash] = possibleLists
-
-			cachedThreats, cr := sb.c.Lookup(fullHash)
-			switch cr {
-			case positiveCacheHit:
-				for _, list := range possibleLists {
-					if cachedThreats[list.ThreatType] {
-						threats[i] = append(threats[i], URLThreat{Pattern: pattern, HashList: list})
-					}
-				}
-				atomic.AddInt64(&sb.stats.QueriesByCache, 1)
-			case negativeCacheHit:
-				atomic.AddInt64(&sb.stats.QueriesByCache, 1)
-			default:
-				prefixes[partialHash] = struct{}{}
-			}
+			prefixes[partialHash] = struct{}{}
 		}
 	}
 
@@ -277,15 +278,25 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 	for prefix := range prefixes {
 		reqPrefixes = append(reqPrefixes, prefix)
 	}
-	resp, err := sb.api.HashLookup(ctx, reqPrefixes)
-	if err != nil {
-		sb.log.Printf("HashLookup failure: %v", err)
-		atomic.AddInt64(&sb.stats.QueriesFail, 1)
-		return threats, err
+	var matches []fullHash
+	for start := 0; start < len(reqPrefixes); start += maxHashPrefixesPerRequest {
+		end := start + maxHashPrefixesPerRequest
+		if end > len(reqPrefixes) {
+			end = len(reqPrefixes)
+		}
+		batch := reqPrefixes[start:end]
+		resp, err := sb.api.HashLookup(ctx, batch)
+		if err != nil {
+			sb.log.Printf("HashLookup failure: %v", err)
+			atomic.AddInt64(&sb.stats.QueriesFail, 1)
+			return threats, err
+		}
+		sb.c.Update(batch, resp)
+		matches = append(matches, resp.FullHashes...)
+		atomic.AddInt64(&sb.stats.QueriesByAPI, 1)
 	}
-	sb.c.Update(reqPrefixes, resp)
 
-	for _, match := range resp.FullHashes {
+	for _, match := range matches {
 		fullHashBytes, err := decodeBase64(match.FullHash)
 		if err != nil {
 			continue
@@ -301,7 +312,7 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 		}
 		possibleLists := hashListsByHash[fullHash]
 		for _, detail := range match.FullHashDetails {
-			if !validThreatType(detail.ThreatType) {
+			if !enforceableThreatDetail(detail) {
 				continue
 			}
 			for _, list := range possibleLists {
@@ -315,7 +326,6 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 		}
 	}
 
-	atomic.AddInt64(&sb.stats.QueriesByAPI, 1)
 	return threats, nil
 }
 
@@ -326,6 +336,22 @@ func validThreatType(tt ThreatType) bool {
 	default:
 		return false
 	}
+}
+
+func enforceableThreatDetail(detail fullHashDetail) bool {
+	if !validThreatType(detail.ThreatType) {
+		return false
+	}
+	for _, attribute := range detail.Attributes {
+		switch attribute {
+		case "CANARY", "FRAME_ONLY":
+			return false
+		default:
+			// Unknown attributes invalidate the entire detail for forward compatibility.
+			return false
+		}
+	}
+	return true
 }
 
 func (sb *SafeBrowser) updater(delay time.Duration) {
