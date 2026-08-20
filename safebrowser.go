@@ -99,6 +99,13 @@ const (
 	// DefaultRequestTimeout is the default amount of time a single
 	// api request can take.
 	DefaultRequestTimeout = time.Minute
+
+	// maxHashPrefixesPerRequest is the maximum number of hash prefixes that
+	// the Safe Browsing API accepts in a single fullHashes.find request.
+	// The server returns a 400 error when this limit is exceeded, so requests
+	// with more prefixes must be split into multiple API calls.
+	// See https://developers.google.com/safe-browsing/v4/update-api.
+	maxHashPrefixesPerRequest = 500
 )
 
 // Errors specific to this package.
@@ -504,19 +511,41 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 	}
 
 	// Actually query the Safe Browsing API for exact full hash matches.
-	if len(req.ThreatInfo.ThreatEntries) != 0 {
-		resp, err := sb.api.HashLookup(ctx, req)
-		if err != nil {
-			sb.log.Printf("HashLookup failure: %v", err)
-			atomic.AddInt64(&sb.stats.QueriesFail, 1)
-			return threats, err
-		}
+	// The API accepts at most maxHashPrefixesPerRequest hash prefixes in a
+	// single request, so split the entries into multiple requests and merge
+	// the responses. This prevents the server from rejecting requests with a
+	// 400 when more than that many prefixes are queried.
+	if entries := req.ThreatInfo.GetThreatEntries(); len(entries) != 0 {
+		var matches []*pb.ThreatMatch
+		for i := 0; i < len(entries); i += maxHashPrefixesPerRequest {
+			end := i + maxHashPrefixesPerRequest
+			if end > len(entries) {
+				end = len(entries)
+			}
+			subReq := &pb.FindFullHashesRequest{
+				Client: req.Client,
+				ThreatInfo: &pb.ThreatInfo{
+					ThreatTypes:      req.ThreatInfo.GetThreatTypes(),
+					PlatformTypes:    req.ThreatInfo.GetPlatformTypes(),
+					ThreatEntryTypes: req.ThreatInfo.GetThreatEntryTypes(),
+					ThreatEntries:    entries[i:end],
+				},
+			}
+			resp, err := sb.api.HashLookup(ctx, subReq)
+			if err != nil {
+				sb.log.Printf("HashLookup failure: %v", err)
+				atomic.AddInt64(&sb.stats.QueriesFail, 1)
+				return threats, err
+			}
 
-		// Update the cache.
-		sb.c.Update(req, resp)
+			// Update the cache.
+			sb.c.Update(subReq, resp)
+			matches = append(matches, resp.GetMatches()...)
+		}
+		atomic.AddInt64(&sb.stats.QueriesByAPI, 1)
 
 		// Pull the information the client cares about out of the response.
-		for _, tm := range resp.GetMatches() {
+		for _, tm := range matches {
 			fullHash := hashPrefix(tm.GetThreat().Hash)
 			if !fullHash.IsFull() {
 				continue
@@ -540,7 +569,6 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 				}
 			}
 		}
-		atomic.AddInt64(&sb.stats.QueriesByAPI, 1)
 	}
 	return threats, nil
 }
