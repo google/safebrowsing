@@ -256,6 +256,13 @@ func parseHost(hostish string) (host string, err error) {
 
 	// Convert internationalized hostnames to IDNA.
 	u := unescape(host)
+	// Bound the hostname length before the O(D*N) punycode encoder runs.
+	// RFC 1035 caps DNS names at 253 octets; 4096 is a generous upper bound
+	// that still admits any legitimate pre-IDNA Unicode hostname.
+	const maxHostLength = 4096
+	if len(u) > maxHostLength {
+		return "", errors.New("safebrowsing: host too long")
+	}
 	if isUnicode(u) {
 		host, err = idna.ToASCII(u)
 		if err != nil {
