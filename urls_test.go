@@ -337,3 +337,65 @@ func TestCanonicalURL(t *testing.T) {
 		}
 	}
 }
+
+func distinctUnicodeHost(n int) string {
+	runes := make([]rune, n)
+	cp := rune(0x3400)
+	for i := 0; i < n; i++ {
+		if cp == 0xD800 {
+			cp = 0xE000
+		}
+		runes[i] = cp
+		cp++
+	}
+	return string(runes)
+}
+
+func TestParseHostMaxLength(t *testing.T) {
+	// Verify oversized hostnames are rejected before quadratic punycode encoding,
+	// while valid IDN hostnames and hosts within the 4096-byte bound succeed.
+	rejected := []struct {
+		name string
+		url  string
+	}{
+		{"30k_distinct_cjk", "http://" + distinctUnicodeHost(30000) + "/"},
+		{"just_over_unicode_limit", "http://" + distinctUnicodeHost(1366) + "/"}, // 4098 UTF-8 bytes
+		{"just_over_ascii_limit", "http://" + strings.Repeat("a", 4097) + "/"},
+		{"percent_encoded_unicode_over_limit", "http://" + strings.Repeat("%e3%90%80", 1366) + "/"},
+	}
+	for _, tc := range rejected {
+		if ValidURL(tc.url) {
+			t.Errorf("%s: ValidURL = true, want false", tc.name)
+		}
+		if _, err := generateHashes(tc.url); err == nil {
+			t.Errorf("%s: generateHashes succeeded, want error", tc.name)
+		}
+	}
+
+	accepted := []struct {
+		url  string
+		want string
+	}{
+		{"http://例え.テスト/", "http://xn--r8jz45g.xn--zckzah/"},
+		{"http://münchen.example.com/", "http://xn--mnchen-3ya.example.com/"},
+		{"http://xn--r8jz45g.example/", "http://xn--r8jz45g.example/"},
+		{"http://" + strings.Repeat("a", 4096) + "/", "http://" + strings.Repeat("a", 4096) + "/"},
+		{"http://user:pass@" + strings.Repeat("a", 4096) + ":8080/", "http://" + strings.Repeat("a", 4096) + "/"},
+	}
+	for _, tc := range accepted {
+		got, err := canonicalURL(tc.url)
+		if err != nil {
+			t.Errorf("canonicalURL(%q) unexpected error: %v", tc.url, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("canonicalURL(%q) = %q, want %q", tc.url, got, tc.want)
+		}
+	}
+
+	// Verify 4095-byte distinct Unicode host stays fast and succeeds.
+	maxUnicodeURL := "http://" + distinctUnicodeHost(1365) + "/"
+	if !ValidURL(maxUnicodeURL) {
+		t.Errorf("ValidURL(4095-byte Unicode host) = false, want true")
+	}
+}
