@@ -399,3 +399,164 @@ func TestParseHostMaxLength(t *testing.T) {
 		t.Errorf("ValidURL(4095-byte Unicode host) = false, want true")
 	}
 }
+
+func TestCanonicalURLUserinfo(t *testing.T) {
+	tests := []struct {
+		name         string
+		rawURL       string
+		wantURL      string
+		wantHost     string
+		wantPatterns []string
+	}{
+		{
+			name:         "encoded_slash_lower",
+			rawURL:       "http://benign.test%2f@evil.test/",
+			wantURL:      "http://evil.test/",
+			wantHost:     "evil.test",
+			wantPatterns: []string{"evil.test/"},
+		},
+		{
+			name:         "encoded_slash_upper",
+			rawURL:       "http://benign.test%2F@evil.test/a/b",
+			wantURL:      "http://evil.test/a/b",
+			wantHost:     "evil.test",
+			wantPatterns: []string{"evil.test/", "evil.test/a/", "evil.test/a/b"},
+		},
+		{
+			name:         "double_encoded_slash",
+			rawURL:       "http://benign.test%252f@evil.test/",
+			wantURL:      "http://evil.test/",
+			wantHost:     "evil.test",
+			wantPatterns: []string{"evil.test/"},
+		},
+		{
+			name:         "encoded_question_mark",
+			rawURL:       "http://benign.test%3f@evil.test/",
+			wantURL:      "http://evil.test/",
+			wantHost:     "evil.test",
+			wantPatterns: []string{"evil.test/"},
+		},
+		{
+			name:         "encoded_question_mark_with_query",
+			rawURL:       "http://benign.test%3f@evil.test?k=v",
+			wantURL:      "http://evil.test/",
+			wantHost:     "evil.test",
+			wantPatterns: []string{"evil.test/", "evil.test/?k=v"},
+		},
+		{
+			name:         "encoded_delimiters_with_port_path_query_frag",
+			rawURL:       "http://user%2fpass%3f@evil.test:8080/p?q=1#frag",
+			wantURL:      "http://evil.test/p",
+			wantHost:     "evil.test",
+			wantPatterns: []string{"evil.test/", "evil.test/p", "evil.test/p?q=1"},
+		},
+		{
+			name:         "multiple_at_signs",
+			rawURL:       "http://a@benign.test%2f@evil.test/",
+			wantURL:      "http://evil.test/",
+			wantHost:     "evil.test",
+			wantPatterns: []string{"evil.test/"},
+		},
+		{
+			name:         "no_scheme_encoded_slash",
+			rawURL:       "benign.test%2f@evil.test/p",
+			wantURL:      "http://evil.test/p",
+			wantHost:     "evil.test",
+			wantPatterns: []string{"evil.test/", "evil.test/p"},
+		},
+		{
+			name:         "no_trailing_slash",
+			rawURL:       "http://benign.test%2f@evil.test",
+			wantURL:      "http://evil.test/",
+			wantHost:     "evil.test",
+			wantPatterns: []string{"evil.test/"},
+		},
+		{
+			name:         "ipv6_host_with_encoded_slash_userinfo",
+			rawURL:       "http://user%2f@[2001:470:1:18::114]:80/a",
+			wantURL:      "http://[2001:470:1:18::114]/a",
+			wantHost:     "[2001:470:1:18::114]",
+			wantPatterns: []string{"[2001:470:1:18::114]/", "[2001:470:1:18::114]/a"},
+		},
+		{
+			name:         "at_sign_in_path_preserved",
+			rawURL:       "http://benign.test/path@evil.test",
+			wantURL:      "http://benign.test/path@evil.test",
+			wantHost:     "benign.test",
+			wantPatterns: []string{"benign.test/", "benign.test/path@evil.test"},
+		},
+		{
+			name:         "at_sign_in_query_preserved",
+			rawURL:       "http://benign.test?q=@evil.test",
+			wantURL:      "http://benign.test/",
+			wantHost:     "benign.test",
+			wantPatterns: []string{"benign.test/", "benign.test/?q=@evil.test"},
+		},
+		{
+			name:         "fragment_before_at_sign",
+			rawURL:       "http://benign.test#@evil.test/",
+			wantURL:      "http://benign.test/",
+			wantHost:     "benign.test",
+			wantPatterns: []string{"benign.test/"},
+		},
+		{
+			name:         "embedded_newline_in_userinfo",
+			rawURL:       "http://benign.test\n%2f@evil.test/",
+			wantURL:      "http://evil.test/",
+			wantHost:     "evil.test",
+			wantPatterns: []string{"evil.test/"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotURL, err := canonicalURL(tc.rawURL)
+			if err != nil {
+				t.Fatalf("canonicalURL(%q) returned unexpected error: %v", tc.rawURL, err)
+			}
+			if gotURL != tc.wantURL {
+				t.Errorf("canonicalURL(%q) = %q, want %q", tc.rawURL, gotURL, tc.wantURL)
+			}
+
+			gotHost, err := canonicalHost(tc.rawURL)
+			if err != nil {
+				t.Fatalf("canonicalHost(%q) returned unexpected error: %v", tc.rawURL, err)
+			}
+			if gotHost != tc.wantHost {
+				t.Errorf("canonicalHost(%q) = %q, want %q", tc.rawURL, gotHost, tc.wantHost)
+			}
+
+			gotPatterns, err := generatePatterns(tc.rawURL)
+			if err != nil {
+				t.Fatalf("generatePatterns(%q) returned unexpected error: %v", tc.rawURL, err)
+			}
+			sort.Strings(gotPatterns)
+			if !reflect.DeepEqual(gotPatterns, tc.wantPatterns) {
+				t.Errorf("generatePatterns(%q) = %q, want %q", tc.rawURL, gotPatterns, tc.wantPatterns)
+			}
+		})
+	}
+}
+
+func TestCanonicalURLUserinfoErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		rawURL string
+	}{
+		{name: "empty_host", rawURL: "http://benign.test%2f@"},
+		{name: "empty_host_with_slash", rawURL: "http://benign.test%2f@/"},
+		{name: "empty_host_with_query", rawURL: "http://benign.test%2f@?q=1"},
+		{name: "encoded_authority_slashes", rawURL: "http:%2f%2fbenign.test%2f@evil.test/"},
+		{name: "mixed_authority_slashes", rawURL: "http:/%2fbenign.test%2f@evil.test/"},
+		{name: "double_encoded_authority_slashes", rawURL: "http:%252f%252fbenign.test%2f@evil.test/"},
+		{name: "opaque_mailto", rawURL: "mailto:user%2f@evil.test"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, err := canonicalURL(tc.rawURL); err == nil {
+				t.Errorf("canonicalURL(%q) = %q, want error", tc.rawURL, got)
+			}
+		})
+	}
+}
